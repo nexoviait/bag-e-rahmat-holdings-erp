@@ -1,0 +1,185 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* =========================================================
+   BAG E RAHMAT HOLDINGS ERP — Noir & Gold Design System
+   Palette: Deep obsidian black + luxurious gold accents
+   Fonts: Space Grotesk (display) + DM Sans (body)
+   ========================================================= */
+
+@theme inline {
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --shadow-gold: 0 10px 40px -12px color-mix(in oklab, var(--gold) 40%, transparent);
+  --shadow-elevated: 0 20px 50px -20px oklch(0 0 0 / 0.6);
+}
+
+:root {
+  --radius: 0.75rem;
+
+  /* Noir base */
+  --background: oklch(0.11 0.005 60);
+  --foreground: oklch(0.96 0.01 90);
+  --surface: oklch(0.14 0.006 60);
+  --surface-2: oklch(0.17 0.008 60);
+  --card: oklch(0.14 0.006 60);
+  --card-foreground: oklch(0.96 0.01 90);
+  --popover: oklch(0.15 0.006 60);
+  --popover-foreground: oklch(0.96 0.01 90);
+
+  /* Gold as primary */
+  --primary: oklch(0.78 0.13 85);
+  --primary-foreground: oklch(0.14 0.01 60);
+  --gold: oklch(0.78 0.13 85);
+  --gold-soft: oklch(0.88 0.09 88);
+
+  --secondary: oklch(0.2 0.006 60);
+  --secondary-foreground: oklch(0.96 0.01 90);
+  --muted: oklch(0.19 0.005 60);
+  --muted-foreground: oklch(0.65 0.015 80);
+  --accent: oklch(0.22 0.01 80);
+  --accent-foreground: oklch(0.96 0.01 90);
+
+  --destructive: oklch(0.62 0.22 25);
+  --destructive-foreground: oklch(0.98 0.01 90);
+  --success: oklch(0.72 0.16 155);
+  --warning: oklch(0.8 0.15 70);
+
+  --border: oklch(0.24 0.008 70 / 60%);
+  --input: oklch(0.22 0.008 70);
+  --ring: oklch(0.78 0.13 85 / 60%);
+
+  --sidebar: oklch(0.09 0.005 60);
+  --sidebar-foreground: oklch(0.92 0.01 90);
+  --sidebar-primary: oklch(0.78 0.13 85);
+  --sidebar-primary-foreground: oklch(0.14 0.01 60);
+  --sidebar-accent: oklch(0.17 0.008 60);
+  --sidebar-accent-foreground: oklch(0.96 0.01 90);
+  --sidebar-border: oklch(0.22 0.008 70 / 50%);
+  --sidebar-ring: oklch(0.78 0.13 85 / 60%);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html, body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4, h5, h6, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--gold) 40%, transparent);
+    color: var(--foreground);
+  }
+}
+
+input.input,
+input.pi,
+select.pi,
+textarea.pi {
+  width: 100% !important;
+  background-color: var(--input) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--foreground) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 0.65rem 0.85rem !important;
+  font-size: 0.875rem !important;
+  outline: none !important;
+  transition: all 0.15s ease-in-out !important;
+}
+
+input.input:focus,
+input.pi:focus,
+select.pi:focus,
+textarea.pi:focus {
+  border-color: var(--gold) !important;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--gold) 25%, transparent) !important;
+}
+
+@utility gold-text {
+  background: linear-gradient(135deg, oklch(0.9 0.11 88), oklch(0.72 0.14 80));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility noir-panel {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--background) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+}
+
+@utility gold-ring {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--gold) 25%, transparent),
+    0 10px 40px -12px color-mix(in oklab, var(--gold) 30%, transparent);
+}
+
+@utility hairline-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--gold) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--gold) 6%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
