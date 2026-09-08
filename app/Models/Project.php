@@ -119,4 +119,14 @@ class Project extends Model
     {
         return $this->hasMany(ActivityLog::class);
     }
+
+    public function documents()
+    {
+        return $this->hasMany(ProjectDocument::class);
+    }
+
+    public function dvrDevices()
+    {
+        return $this->hasMany(DvrDevice::class);
+    }
 }

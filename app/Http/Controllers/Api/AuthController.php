@@ -43,6 +43,7 @@ class AuthController extends Controller
                     'phone' => $user->phone,
                     'is_active' => $user->is_active,
                     'roles' => $user->getRoleNames()->values()->toArray(),
+                    'permissions' => $user->getAllPermissions()->pluck('name')->values()->toArray(),
                 ],
                 'token' => $token,
             ]);
@@ -83,6 +84,7 @@ class AuthController extends Controller
                     'phone' => $user->phone,
                     'is_active' => $user->is_active,
                     'roles' => $user->getRoleNames()->values()->toArray(),
+                    'permissions' => $user->getAllPermissions()->pluck('name')->values()->toArray(),
                 ],
                 'token' => $token,
             ], 201);
@@ -108,6 +110,7 @@ class AuthController extends Controller
                     'phone' => $user->phone,
                     'is_active' => $user->is_active,
                     'roles' => $user->getRoleNames()->values()->toArray(),
+                    'permissions' => $user->getAllPermissions()->pluck('name')->values()->toArray(),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -155,6 +158,7 @@ class AuthController extends Controller
                     'phone' => $user->phone,
                     'is_active' => $user->is_active,
                     'roles' => $user->getRoleNames()->values()->toArray(),
+                    'permissions' => $user->getAllPermissions()->pluck('name')->values()->toArray(),
                 ],
             ]);
         } catch (ValidationException $e) {

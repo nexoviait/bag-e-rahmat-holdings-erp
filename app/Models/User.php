@@ -48,4 +48,9 @@ class User extends Authenticatable
     {
         return $this->hasOne(Shareholder::class);
     }
+
+    public function assignedCameras()
+    {
+        return $this->belongsToMany(CameraChannel::class, 'camera_user_assignments')->withTimestamps();
+    }
 }

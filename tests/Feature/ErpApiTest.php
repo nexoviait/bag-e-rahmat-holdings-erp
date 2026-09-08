@@ -21,13 +21,14 @@ class ErpApiTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Project::factory()->count(2)->create();
     }
 
     public function test_auth_login(): void
     {
         $response = $this->postJson('/api/v1/auth/login', [
-            'email' => 'admin@bage-rahmat.com',
-            'password' => 'BagERahmat#2026!Admin',
+            'email' => 'admin@brahmatholdings.com',
+            'password' => '12345678',
         ]);
 
         $response->assertStatus(200)
@@ -36,7 +37,7 @@ class ErpApiTest extends TestCase
 
     public function test_dashboard_totals(): void
     {
-        $user = User::where('email', 'admin@bage-rahmat.com')->first();
+        $user = User::where('email', 'admin@brahmatholdings.com')->first();
 
         $response = $this->actingAs($user, 'sanctum')
             ->getJson('/api/v1/dashboard/totals');
@@ -47,7 +48,7 @@ class ErpApiTest extends TestCase
 
     public function test_projects_list(): void
     {
-        $user = User::where('email', 'admin@bage-rahmat.com')->first();
+        $user = User::where('email', 'admin@brahmatholdings.com')->first();
 
         $response = $this->actingAs($user, 'sanctum')
             ->getJson('/api/v1/projects');
@@ -58,7 +59,7 @@ class ErpApiTest extends TestCase
 
     public function test_financial_formulas_and_reports(): void
     {
-        $user = User::where('email', 'admin@bage-rahmat.com')->first();
+        $user = User::where('email', 'admin@brahmatholdings.com')->first();
         $project = Project::first();
 
         $response = $this->actingAs($user, 'sanctum')

@@ -80,6 +80,8 @@ export function RolesPage() {
     Projects: (allPermissions || []).filter((p) => p.startsWith("projects.")),
     Financials: (allPermissions || []).filter((p) => p.startsWith("financials.")),
     Shareholders: (allPermissions || []).filter((p) => p.startsWith("shareholders.")),
+    Documents: (allPermissions || []).filter((p) => p.startsWith("documents.")),
+    "CCTV Monitoring": (allPermissions || []).filter((p) => p.startsWith("cctv.")),
     Administration: (allPermissions || []).filter(
       (p) => p.startsWith("users.") || p.startsWith("reports.")
     ),

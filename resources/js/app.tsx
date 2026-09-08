@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "sonner";
+import { QueryClient, QueryClientProvider, QueryCache } from "@tanstack/react-query";
+import { Toaster, toast } from "sonner";
 
 import { api } from "@/lib/api";
 import { AuthContext, UserSession } from "@/lib/session";
@@ -17,8 +17,32 @@ import { AssignmentsPage } from "@/pages/admin/AssignmentsPage";
 import { RolesPage } from "@/pages/admin/RolesPage";
 import { SettingsPage } from "@/pages/admin/SettingsPage";
 import { ActivityLogsPage } from "@/pages/admin/ActivityLogsPage";
+import { MonitoringPage } from "@/pages/MonitoringPage";
 
 const queryClient = new QueryClient({
+  // Without this, a failed useQuery (network down, 500, etc.) just leaves
+  // `data` undefined once loading settles — pages that only branch on
+  // `isLoading` (most of them) then render their normal "nothing here yet"
+  // empty state, which is actively misleading: it looks like "you have no
+  // projects" when the real story is "the request failed." A global handler
+  // here covers every query in the app without needing every page updated
+  // individually.
+  queryCache: new QueryCache({
+    onError: (error: any, query) => {
+      // Session expiry is already handled by the axios interceptor in
+      // lib/api.ts (redirects to /auth) — don't also toast it here.
+      if (error?.response?.status === 401) return;
+
+      // Only toast a query's FIRST failure (no data ever successfully
+      // loaded). A background refetch failing while good data is still on
+      // screen — e.g. one of the 30-60s CCTV status polls — would otherwise
+      // toast repeatedly and become noise instead of a signal.
+      if (query.state.data !== undefined) return;
+
+      const message = error?.response?.data?.message || error?.message || "Failed to load data. Please try again.";
+      toast.error(message);
+    },
+  }),
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
@@ -116,6 +140,7 @@ function MainApp() {
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/projects/:projectId/*" element={<ProjectDetailPage />} />
+              <Route path="/monitoring" element={<MonitoringPage />} />
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/assignments" element={<AssignmentsPage />} />
               <Route path="/admin/roles" element={<RolesPage />} />

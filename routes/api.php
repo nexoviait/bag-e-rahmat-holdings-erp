@@ -10,6 +10,17 @@ use App\Http\Controllers\Api\ShareholderController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\SettingController;
+use App\Http\Controllers\Api\ProjectDocumentController;
+use App\Http\Controllers\Api\DocumentTypeController;
+use App\Modules\Cctv\Http\Controllers\DeviceController as CctvDeviceController;
+use App\Modules\Cctv\Http\Controllers\CameraController as CctvCameraController;
+use App\Modules\Cctv\Http\Controllers\CameraAccessController as CctvCameraAccessController;
+use App\Modules\Cctv\Http\Controllers\CameraLogController as CctvCameraLogController;
+use App\Modules\Cctv\Http\Controllers\StatusController as CctvStatusController;
+use App\Modules\Cctv\Http\Controllers\StreamController as CctvStreamController;
+use App\Modules\Cctv\Http\Controllers\MediaMtxAuthController;
+use App\Modules\Cctv\Http\Controllers\PtzController as CctvPtzController;
+use App\Http\Controllers\Api\NotificationController;
 
 Route::prefix('v1')->group(function () {
     // System Settings (Public)
@@ -18,6 +29,13 @@ Route::prefix('v1')->group(function () {
     // Auth Routes
     Route::post('/auth/login', [AuthController::class, 'login']);
     Route::post('/auth/register', [AuthController::class, 'register']);
+
+    // MediaMTX authHTTPAddress webhook — MediaMTX isn't a logged-in user, so
+    // this sits outside auth:sanctum entirely. Protected instead by a shared
+    // secret baked into the webhook URL configured server-side on MediaMTX
+    // (see MediaMtxAuthController), plus throttling since it's the one CCTV
+    // endpoint not behind Sanctum.
+    Route::middleware('throttle:120,1')->post('/cctv/mediamtx/auth', MediaMtxAuthController::class);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/auth/me', [AuthController::class, 'me']);
@@ -38,6 +56,55 @@ Route::prefix('v1')->group(function () {
         Route::get('/projects/{id}/summary', [ReportController::class, 'projectSummary']);
         Route::get('/projects/{id}/report', [ReportController::class, 'projectReport']);
         Route::get('/projects/{id}/recent', [ReportController::class, 'projectRecent']);
+
+        // Project Documents
+        Route::get('/projects/{id}/documents', [ProjectDocumentController::class, 'index']);
+        Route::get('/projects/{id}/documents/assignable-users', [ProjectDocumentController::class, 'assignableUsers']);
+        Route::post('/projects/{id}/documents', [ProjectDocumentController::class, 'store']);
+        Route::get('/projects/{id}/documents/{docId}/download', [ProjectDocumentController::class, 'download']);
+        Route::put('/projects/{id}/documents/{docId}', [ProjectDocumentController::class, 'update']);
+        Route::delete('/projects/{id}/documents/{docId}', [ProjectDocumentController::class, 'destroy']);
+
+        // Document Types (dynamic, shared across projects)
+        Route::get('/document-types', [DocumentTypeController::class, 'index']);
+        Route::post('/document-types', [DocumentTypeController::class, 'store']);
+
+        // CCTV Monitoring — Devices
+        Route::get('/cctv/devices', [CctvDeviceController::class, 'index']);
+        Route::post('/cctv/devices', [CctvDeviceController::class, 'store']);
+        Route::get('/cctv/devices/{id}', [CctvDeviceController::class, 'show']);
+        Route::put('/cctv/devices/{id}', [CctvDeviceController::class, 'update']);
+        Route::delete('/cctv/devices/{id}', [CctvDeviceController::class, 'destroy']);
+        Route::post('/cctv/devices/{id}/test', [CctvDeviceController::class, 'test']);
+        Route::get('/cctv/devices/{id}/channels', [CctvDeviceController::class, 'channels']);
+        Route::post('/cctv/devices/{id}/sync', [CctvDeviceController::class, 'sync']);
+
+        // CCTV Monitoring — Cameras
+        Route::get('/cctv/cameras', [CctvCameraController::class, 'index']);
+        Route::get('/cctv/cameras/{id}', [CctvCameraController::class, 'show']);
+        Route::put('/cctv/cameras/{id}', [CctvCameraController::class, 'update']);
+        Route::get('/cctv/cameras/{id}/logs', [CctvCameraLogController::class, 'index']);
+        Route::get('/cctv/cameras/{id}/assignments', [CctvCameraAccessController::class, 'index']);
+        Route::post('/cctv/cameras/{id}/assignments', [CctvCameraAccessController::class, 'sync']);
+        Route::get('/cctv/cameras/{id}/assignable-users', [CctvCameraAccessController::class, 'assignableUsers']);
+
+        // CCTV Monitoring — Live streaming (MediaMTX-backed) & snapshots
+        Route::post('/cctv/live/{id}', [CctvStreamController::class, 'mint']);
+        Route::get('/cctv/snapshot/{id}', [CctvStreamController::class, 'snapshot']);
+
+        // CCTV Monitoring — PTZ & Events
+        Route::post('/cctv/cameras/{id}/ptz', [CctvPtzController::class, 'command']);
+        Route::get('/cctv/events', [CctvCameraLogController::class, 'events']);
+
+        // CCTV Monitoring — Status
+        Route::get('/cctv/projects', [CctvStatusController::class, 'projects']);
+        Route::get('/cctv/status', CctvStatusController::class);
+
+        // Notifications (generic — not Cctv-specific; camera-offline alerts are
+        // just today's only producer of the shared Laravel notifications table)
+        Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
+        Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
 
         // Financial Modules (budgets, revenues, expenses, owner_payments)
         Route::get('/financials/{type}', [FinancialController::class, 'index']);

@@ -103,7 +103,13 @@ class SettingController extends Controller
             });
             return response()->json($logs);
         } catch (Throwable $e) {
-            return response()->json([]);
+            // A silent [] here used to make a real failure (DB issue, bad
+            // record, etc.) look identical to "no activity yet" — the one
+            // audit trail whose entire job is to surface what went wrong
+            // would instead have hidden its own failure. Log it and return a
+            // real error status so the frontend can tell the two apart.
+            report($e);
+            return response()->json(['message' => 'Failed to load activity logs.'], 500);
         }
     }
 }

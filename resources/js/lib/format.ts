@@ -9,6 +9,18 @@ export function fmtBDT(amount: number | null | undefined): string {
   );
 }
 
+export function fmtFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || isNaN(bytes) || bytes <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let i = 0;
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024;
+    i++;
+  }
+  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
 export function fmtDate(d: string | null | undefined): string {
   if (!d) return "—";
   try {
@@ -25,6 +37,7 @@ export function fmtDate(d: string | null | undefined): string {
 export const roleLabels: Record<string, string> = {
   super_admin: "Super Admin",
   admin: "Admin",
+  manager: "Manager",
   user: "User",
 };
 

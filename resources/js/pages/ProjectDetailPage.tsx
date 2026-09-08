@@ -1,23 +1,44 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { statusLabels, fmtBDT } from "@/lib/format";
 import { useIsAdmin } from "@/lib/session";
 import { DatePicker } from "@/components/DatePicker";
-import { Loader2, Edit2, X, Wallet, Users } from "lucide-react";
+import { Loader2, Edit2, X, Wallet, Users, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 import { OverviewTab } from "./project-tabs/OverviewTab";
 import { FinancialTab } from "./project-tabs/FinancialTab";
 import { ShareholdersTab } from "./project-tabs/ShareholdersTab";
 import { ReportsTab } from "./project-tabs/ReportsTab";
+import { DocumentsTab } from "./project-tabs/DocumentsTab";
+import { CctvTab } from "./project-tabs/CctvTab";
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const location = useLocation();
   const isAdmin = useIsAdmin();
   const [openEdit, setOpenEdit] = useState(false);
+
+  // Tracks whether the tab strip below has more tabs hidden off-screen in
+  // either direction, so the fade hint + tap-to-scroll arrows only show up
+  // when there's actually something to scroll to (matters most on mobile,
+  // where all 8 tabs never fit and swiping isn't otherwise discoverable).
+  const tabsScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
+  const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
+
+  function updateTabScrollState() {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    setCanScrollTabsLeft(el.scrollLeft > 4);
+    setCanScrollTabsRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }
+
+  function scrollTabs(direction: 1 | -1) {
+    tabsScrollRef.current?.scrollBy({ left: direction * 140, behavior: "smooth" });
+  }
 
   const { data: project, isLoading } = useQuery({
     queryKey: ["project", projectId],
@@ -28,12 +49,23 @@ export function ProjectDetailPage() {
     },
   });
 
+  // Re-check once the tab strip actually mounts (project finishes loading)
+  // and whenever the viewport resizes; onScroll below keeps it live during
+  // an actual scroll/swipe.
+  useEffect(() => {
+    updateTabScrollState();
+    window.addEventListener("resize", updateTabScrollState);
+    return () => window.removeEventListener("resize", updateTabScrollState);
+  }, [project]);
+
   const tabs = [
     { path: "", label: "Dashboard" },
     { path: "/revenue", label: "Revenue" },
     { path: "/expenses", label: "Expenses" },
     { path: "/shareholders", label: "Shareholders" },
     { path: "/payments", label: "Owner Payments" },
+    { path: "/documents", label: "Documents" },
+    { path: "/cctv", label: "CCTV" },
     { path: "/reports", label: "Reports" },
   ];
 
@@ -64,6 +96,10 @@ export function ProjectDetailPage() {
         return <FinancialTab projectId={projectId!} kind="payments" />;
       case "/shareholders":
         return <ShareholdersTab projectId={projectId!} />;
+      case "/documents":
+        return <DocumentsTab projectId={projectId!} />;
+      case "/cctv":
+        return <CctvTab projectId={projectId!} />;
       case "/reports":
         return <ReportsTab projectId={projectId!} />;
       default:
@@ -73,7 +109,7 @@ export function ProjectDetailPage() {
 
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] font-medium uppercase tracking-widest text-gold">
             <span>{project.code ?? "Project"}</span>
@@ -115,27 +151,55 @@ export function ProjectDetailPage() {
         )}
       </div>
 
-      <div className="mb-8 flex items-center gap-1 border-b border-border/60 overflow-x-auto no-scrollbar whitespace-nowrap">
-        {tabs.map((t) => {
-          const active =
-            t.path === ""
-              ? currentSubPath === "" || currentSubPath === "/"
-              : currentSubPath === t.path;
-          return (
-            <Link
-              key={t.label}
-              to={`${base}${t.path}`}
-              className={`relative shrink-0 px-4 py-2.5 text-sm font-medium transition ${
-                active ? "text-foreground font-semibold" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t.label}
-              {active && (
-                <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gold" />
-              )}
-            </Link>
-          );
-        })}
+      <div className="relative mb-8 print:hidden">
+        <div
+          ref={tabsScrollRef}
+          onScroll={updateTabScrollState}
+          className="flex items-center gap-1 border-b border-border/60 overflow-x-auto no-scrollbar whitespace-nowrap"
+        >
+          {tabs.map((t) => {
+            const active =
+              t.path === ""
+                ? currentSubPath === "" || currentSubPath === "/"
+                : currentSubPath === t.path;
+            return (
+              <Link
+                key={t.label}
+                to={`${base}${t.path}`}
+                className={`relative shrink-0 px-4 py-2.5 text-sm font-medium transition ${
+                  active ? "text-foreground font-semibold" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t.label}
+                {active && (
+                  <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gold" />
+                )}
+              </Link>
+            );
+          })}
+        </div>
+
+        {/* Scroll hints — a fade so it's visually obvious there's more, plus
+            a tappable arrow so it's reachable without knowing you can swipe.
+            Only rendered on the side that actually has more to scroll to. */}
+        {canScrollTabsLeft && (
+          <button
+            onClick={() => scrollTabs(-1)}
+            aria-label="Scroll tabs left"
+            className="absolute inset-y-0 left-0 flex items-center bg-gradient-to-r from-background via-background/90 to-transparent pr-4 pl-1 text-gold cursor-pointer"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
+        {canScrollTabsRight && (
+          <button
+            onClick={() => scrollTabs(1)}
+            aria-label="Scroll tabs right"
+            className="absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-background via-background/90 to-transparent pl-4 pr-1 text-gold cursor-pointer"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {renderActiveTab()}

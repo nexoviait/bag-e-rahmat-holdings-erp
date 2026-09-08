@@ -21,14 +21,16 @@ export function StatCard({
       : "";
 
   return (
-    <div className="noir-panel p-5">
-      <div className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+    <div className="noir-panel @container min-w-0 p-5">
+      <div className="truncate text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
         {label}
       </div>
-      <div className={`mt-2 font-display text-2xl font-semibold ${accentCls}`}>
+      <div
+        className={`mt-2 truncate font-display text-base font-semibold leading-tight @[11rem]:text-lg @[15rem]:text-xl @[19rem]:text-2xl ${accentCls}`}
+      >
         {value}
       </div>
-      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+      {hint && <div className="mt-1 truncate text-xs text-muted-foreground">{hint}</div>}
     </div>
   );
 }

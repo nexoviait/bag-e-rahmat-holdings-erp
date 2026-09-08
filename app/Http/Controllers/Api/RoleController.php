@@ -20,7 +20,7 @@ class RoleController extends Controller
                     'id' => $role->id,
                     'name' => $role->name,
                     'permissions' => $role->permissions->pluck('name')->toArray(),
-                    'is_system' => in_array($role->name, ['super_admin', 'admin', 'user']),
+                    'is_system' => in_array($role->name, ['super_admin', 'admin', 'manager', 'user']),
                 ];
             });
 
@@ -98,7 +98,7 @@ class RoleController extends Controller
                 'id' => $role->id,
                 'name' => $role->name,
                 'permissions' => $role->permissions()->pluck('name')->toArray(),
-                'is_system' => in_array($role->name, ['super_admin', 'admin', 'user']),
+                'is_system' => in_array($role->name, ['super_admin', 'admin', 'manager', 'user']),
             ]);
         } catch (ValidationException $e) {
             throw $e;
@@ -114,7 +114,7 @@ class RoleController extends Controller
         try {
             $role = Role::findOrFail($id);
 
-            if (in_array($role->name, ['super_admin', 'admin', 'user'])) {
+            if (in_array($role->name, ['super_admin', 'admin', 'manager', 'user'])) {
                 return response()->json(['message' => 'System default roles cannot be deleted.'], 403);
             }
 

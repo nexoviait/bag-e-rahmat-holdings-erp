@@ -28,4 +28,20 @@ yarn-error.log
 .DS_Store
 Thumbs.db
 
+# MediaMTX streaming server — an external tool the CCTV module talks to over
+# HTTP, not application code. The binary (~55MB) shouldn't be tracked, and
+# certs/*.yml contain a real private key + shared secrets + real domain/IP
+# infrastructure details, same sensitivity class as .env — never committed.
+/mediamtx/mediamtx.exe
+/mediamtx/*.log
+/mediamtx/certs/
+/mediamtx/*.yml
+/mediamtx/auto.crt
+/mediamtx/auto.key
+/mediamtx/LICENSE
+
+# win-acme — one-off Windows ACME/Let's Encrypt client used to obtain the
+# MediaMTX TLS cert; a downloaded external tool, not application code.
+/win-acme-tool/
+
 .claude/settings.local.json

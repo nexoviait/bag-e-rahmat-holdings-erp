@@ -103,7 +103,9 @@ export function UsersPage() {
                   <div className="flex items-center gap-1.5 font-medium text-foreground">
                     <span className="truncate">{u.full_name ?? "—"}</span>
                     {isPrimarySuperAdmin && (
-                      <Lock className="h-3 w-3 shrink-0 text-gold" title="Primary Super Admin Account" />
+                      <span title="Primary Super Admin Account">
+                        <Lock className="h-3 w-3 shrink-0 text-gold" />
+                      </span>
                     )}
                   </div>
                   <div className="mt-0.5 truncate text-xs text-muted-foreground">{u.email}</div>
@@ -207,7 +209,9 @@ export function UsersPage() {
                     <div className="flex items-center gap-1.5">
                       {u.full_name ?? "—"}
                       {isPrimarySuperAdmin && (
-                        <Lock className="h-3 w-3 text-gold" title="Primary Super Admin Account" />
+                        <span title="Primary Super Admin Account">
+                          <Lock className="h-3 w-3 text-gold" />
+                        </span>
                       )}
                     </div>
                   </td>

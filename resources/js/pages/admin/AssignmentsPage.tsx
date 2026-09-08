@@ -160,7 +160,9 @@ export function AssignmentsPage() {
                         <div className="font-display font-semibold text-foreground flex items-center gap-1.5">
                           <span>{u.full_name ?? "—"}</span>
                           {isSuperAdmin && (
-                            <Lock className="h-3 w-3 text-gold" title="System Administrator (Universal Access)" />
+                            <span title="System Administrator (Universal Access)">
+                              <Lock className="h-3 w-3 text-gold" />
+                            </span>
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">{u.email}</div>

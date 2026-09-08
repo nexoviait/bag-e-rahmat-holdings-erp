@@ -3,12 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { PageHeader, AdminNavTabs } from "@/components/AppShell";
 import { useIsAdmin } from "@/lib/session";
-import { History, Building2, FileText } from "lucide-react";
+import { History, Building2, FileText, AlertTriangle, RefreshCw } from "lucide-react";
 
 export function ActivityLogsPage() {
   const isAdmin = useIsAdmin();
 
-  const { data: logs, isLoading } = useQuery({
+  const { data: logs, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin-activity-logs"],
     enabled: isAdmin,
     queryFn: async () => {
@@ -35,20 +35,39 @@ export function ActivityLogsPage() {
             <History className="h-4 w-4 text-gold" />
             <span>Audit Trail & Activity Log</span>
           </div>
-          <span className="text-xs text-muted-foreground">
-            Showing latest {logs?.length ?? 0} events
-          </span>
+          {!isError && (
+            <span className="text-xs text-muted-foreground">
+              Showing latest {logs?.length ?? 0} events
+            </span>
+          )}
         </div>
 
         {isLoading && (
           <div className="px-5 py-12 text-center text-muted-foreground">Loading activity logs…</div>
         )}
-        {logs?.length === 0 && !isLoading && (
+
+        {isError && !isLoading && (
+          <div className="px-5 py-12 text-center">
+            <AlertTriangle className="mx-auto mb-2 h-6 w-6 text-destructive" />
+            <p className="text-sm font-medium text-foreground">Couldn't load activity logs</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {(error as any)?.response?.data?.message || "Something went wrong. Please try again."}
+            </p>
+            <button
+              onClick={() => refetch()}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3.5 py-1.5 text-xs font-medium text-foreground transition hover:border-gold/50 cursor-pointer"
+            >
+              <RefreshCw className="h-3.5 w-3.5 text-gold" /> Retry
+            </button>
+          </div>
+        )}
+
+        {!isError && logs?.length === 0 && !isLoading && (
           <div className="px-5 py-12 text-center text-muted-foreground">No activity logs recorded yet.</div>
         )}
 
         {/* Mobile / tablet: card list */}
-        {logs?.length > 0 && (
+        {!isError && logs?.length > 0 && (
           <div className="divide-y divide-border/40 lg:hidden">
             {logs.map((l: any) => (
               <div key={l.id} className="p-4">
@@ -72,7 +91,7 @@ export function ActivityLogsPage() {
         )}
 
         {/* Desktop: table */}
-        {logs?.length > 0 && (
+        {!isError && logs?.length > 0 && (
           <div className="hidden overflow-x-auto no-scrollbar lg:block">
             <table className="w-full text-sm">
               <thead className="border-b border-border/60 bg-surface-1 text-left text-[11px] uppercase tracking-widest text-muted-foreground">

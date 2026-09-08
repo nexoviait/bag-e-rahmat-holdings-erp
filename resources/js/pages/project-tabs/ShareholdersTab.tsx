@@ -711,8 +711,8 @@ function ShareholderDialog({
           >
             <option value="">-- Custom Shareholder (No Login Account) --</option>
             {userRoleOptions.map((u: any) => (
-              <option key={u.id} value={u.id}>
-                {u.full_name ?? u.name} ({u.email})
+              <option key={u.id} value={u.id} title={`${u.full_name ?? u.name} (${u.email})`}>
+                {u.full_name ?? u.name} ({(u.email ?? "").split("@")[0]})
               </option>
             ))}
           </select>

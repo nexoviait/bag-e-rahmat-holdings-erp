@@ -18,15 +18,18 @@ import {
   Phone,
   Save,
   Loader2,
+  Video,
 } from "lucide-react";
-import { useSession, useIsAdmin, getUserRoles } from "@/lib/session";
+import { useSession, useIsAdmin, useHasPermission, getUserRoles } from "@/lib/session";
 import { roleLabels } from "@/lib/format";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { AlertsBell } from "@/components/cctv/AlertsBell";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useSession();
   const isAdmin = useIsAdmin();
+  const canViewCctv = useHasPermission("cctv.view");
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -76,12 +79,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const nav = [
     { to: "/dashboard", label: "Overview", icon: LayoutDashboard },
     { to: "/projects", label: "Projects", icon: FolderKanban },
+    ...(canViewCctv ? [{ to: "/monitoring", label: "Live Monitoring", icon: Video }] : []),
   ];
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
       {/* Desktop Sidebar */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex print:hidden">
         <Link to="/dashboard" className="flex items-center px-6 py-6 min-h-[72px]">
           {appLogo ? (
             <img src={appLogo} alt={appName} className="h-10 max-w-full object-contain" />
@@ -191,6 +195,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
             </div>
+            <AlertsBell />
             <button
               onClick={handleSignOut}
               title="Sign out"
@@ -203,7 +208,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Mobile Header Bar */}
-      <div className="fixed top-0 inset-x-0 z-40 flex h-14 items-center justify-between border-b border-border bg-sidebar px-4 lg:hidden">
+      <div className="fixed top-0 inset-x-0 z-40 flex h-14 items-center justify-between border-b border-border bg-sidebar px-4 lg:hidden print:hidden">
         <Link to="/dashboard" className="flex items-center gap-2">
           {appLogo ? (
             <img src={appLogo} alt={appName} className="h-8 max-w-[160px] object-contain" />
@@ -216,12 +221,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </Link>
-        <button
-          onClick={() => setMobileOpen(!mobileOpen)}
-          className="rounded-md p-2 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground cursor-pointer"
-        >
-          {mobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </button>
+        <div className="flex items-center gap-1">
+          <AlertsBell />
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="rounded-md p-2 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground cursor-pointer"
+          >
+            {mobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile Drawer */}
@@ -337,8 +345,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Main Content */}
-      <main className="min-w-0 flex-1 lg:pl-64">
-        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 mt-14 lg:mt-0">
+      <main className="min-w-0 flex-1 lg:pl-64 print:pl-0">
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 mt-14 lg:mt-0 print:m-0 print:p-0 print:max-w-none">
           {children}
         </div>
       </main>

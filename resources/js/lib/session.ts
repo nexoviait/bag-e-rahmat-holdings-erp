@@ -7,6 +7,7 @@ export type UserSession = {
   phone?: string;
   is_active: boolean;
   roles: string[] | Record<string, string>;
+  permissions?: string[];
 };
 
 type AuthContextType = {
@@ -49,4 +50,9 @@ export function useCanEditFinancials(): boolean {
     roles.includes("admin") ||
     roles.includes("user")
   );
+}
+
+export function useHasPermission(permission: string): boolean {
+  const { user } = useSession();
+  return !!user?.permissions?.includes(permission);
 }

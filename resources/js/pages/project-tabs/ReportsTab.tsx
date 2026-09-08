@@ -20,6 +20,20 @@ export function ReportsTab({ projectId }: { projectId: string }) {
     },
   });
 
+  // Same queryKey AppShell uses for the app header, so this reuses that
+  // cached fetch instead of firing a second /settings request — and stays
+  // in sync if the logo/name is ever changed from Admin > Settings.
+  const { data: settings } = useQuery({
+    queryKey: ["system-settings"],
+    queryFn: async () => {
+      const res = await api.get("/settings");
+      return res.data;
+    },
+  });
+  const reportAppName = settings?.app_name ?? "Bag E Rahmat";
+  const reportAppSubtitle = settings?.app_subtitle ?? "Holdings ERP";
+  const reportAppLogo = settings?.app_logo ?? null;
+
   const { data, isLoading } = useQuery({
     queryKey: ["reports", projectId],
     queryFn: async () => {
@@ -105,9 +119,22 @@ export function ReportsTab({ projectId }: { projectId: string }) {
     window.print();
   }
 
+  // RFC 4180 field escaping — without this, any project/category/shareholder
+  // name containing a comma (or a quote, or a newline) silently shifts every
+  // column after it, corrupting the file. Wrapping every field in quotes and
+  // doubling internal quotes is the standard, always-safe way to avoid that.
+  function csvField(value: unknown): string {
+    const s = value === null || value === undefined ? "" : String(value);
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+
+  function csvRow(cells: unknown[]): string {
+    return cells.map(csvField).join(",");
+  }
+
   function handleExportReportCSV() {
     if (!data) return;
-    const reportData = [
+    const rows: unknown[][] = [
       ["Bag E Rahmat Holdings ERP - Project Financial Summary"],
       ["Project", project?.name || ""],
       ["Generated Date", new Date().toLocaleDateString()],
@@ -126,29 +153,47 @@ export function ReportsTab({ projectId }: { projectId: string }) {
       ["Total Owner Payments", filteredFinancials.owner],
       ["Total Investments", filteredFinancials.invest],
       [],
-      ["Expense Category", "Amount (BDT)"],
-      ...Object.entries(filteredFinancials.expByCat).map(([cat, amt]) => [cat, amt]),
+      ["Expenses by Category", "Amount (BDT)"],
+      ...(Object.keys(filteredFinancials.expByCat).length > 0
+        ? Object.entries(filteredFinancials.expByCat).map(([cat, amt]) => [cat, amt])
+        : [["No expenses in this period.", ""]]),
+      [],
+      ["Revenue by Source", "Amount (BDT)"],
+      ...(Object.keys(filteredFinancials.revBySource).length > 0
+        ? Object.entries(filteredFinancials.revBySource).map(([src, amt]) => [src, amt])
+        : [["No revenue in this period.", ""]]),
+      [],
+      ["Shareholder Report", "Ownership %", "Shares", "Total Invested (BDT)"],
+      ...(filteredFinancials.shareholders.length > 0
+        ? filteredFinancials.shareholders.map((s: any) => [
+            s.name,
+            Number(s.effective_ownership_pct ?? s.ownership_pct ?? 0),
+            Number(s.effective_share_count ?? s.share_count ?? 0),
+            Number(s.invested),
+          ])
+        : [["No shareholders found.", "", "", ""]]),
     ];
 
-    const csvContent =
-      "data:text/csv;charset=utf-8," + reportData.map((e) => e.join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
+    // Leading BOM tells Excel (the most common consumer of a downloaded CSV
+    // on Windows) to read the file as UTF-8 instead of the system codepage —
+    // without it, Bengali shareholder names and the ৳ currency symbol render
+    // as mojibake even though the file itself is correctly encoded.
+    const csvContent = "﻿" + rows.map(csvRow).join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const safeName = (project?.name || "project").replace(/[^a-z0-9]+/gi, "_");
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute(
-      "download",
-      `financial_report_${project?.name || "project"}_${new Date()
-        .toISOString()
-        .slice(0, 10)}.csv`
-    );
+    link.href = url;
+    link.download = `financial_report_${safeName}_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
     toast.success("Financial report exported");
   }
 
   return (
-    <div className="space-y-10 print:space-y-6">
+    <div className="space-y-10 print:space-y-4">
       {/* Header & Filter Controls */}
       <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
         <div className="flex flex-wrap items-center gap-2">
@@ -202,19 +247,62 @@ export function ReportsTab({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {/* Printable Heading */}
-      <div className="hidden print:block mb-4 border-b border-gray-300 pb-4">
-        <h1 className="text-2xl font-bold text-black">Bag E Rahmat Holdings ERP</h1>
-        <p className="text-sm text-gray-600">Financial & Activity Report for: {project?.name}</p>
-        <p className="text-xs text-gray-500">Date Generated: {new Date().toLocaleDateString()}</p>
+      {/* Printable Letterhead — matches the company's actual letterhead
+          design: logo + bold rule at top, a faded watermark of the logo mark
+          centered on the page, a gray/gold decorative corner, and an address
+          strip at the bottom. The watermark/corner/footer use fixed
+          positioning specifically so they repeat on every printed page (not
+          just page 1) if a report ever runs long enough to spill onto a
+          second page — standard letterhead behavior, not a one-off header. */}
+      <div className="hidden print:block">
+        <img
+          src="/storage/uploads/watermark_r_mark.png"
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none fixed left-1/2 top-[38%] w-56 -translate-x-1/2 -translate-y-1/2 opacity-[0.07]"
+        />
+        <div
+          className="pointer-events-none fixed bottom-0 right-0 h-48 w-48"
+          style={{
+            background: "linear-gradient(135deg, transparent 45%, #9a9a9a 45%)",
+          }}
+        />
+        <div
+          className="pointer-events-none fixed bottom-10 right-10 h-6 w-12"
+          style={{ background: "linear-gradient(135deg, #d4af37, #f2d576)" }}
+        />
+        <div className="fixed bottom-6 left-8 text-[9px] leading-relaxed text-black">
+          <p>53/2, D.I.T Extention Road, Fakirapool/Naya Paltan, Dhaka-1000.</p>
+          <p>info@brahmatholdings.com, +8801898799700</p>
+        </div>
+      </div>
+
+      {/* Printable Heading — uses the actual configured logo/app name from
+          Admin > Settings (same source AppShell's header reads from) rather
+          than a hardcoded company name, so a white-label deployment or a
+          simple rebrand doesn't leave the old name on every printed report. */}
+      <div className="hidden print:block mb-4 border-b-2 border-black pb-3">
+        {reportAppLogo ? (
+          <img src={reportAppLogo} alt={reportAppName} className="mb-1 h-10 max-w-[240px] object-contain" />
+        ) : (
+          <h1 className="text-2xl font-bold text-black">
+            {reportAppName} <span className="font-medium text-black">{reportAppSubtitle}</span>
+          </h1>
+        )}
+        <p className="text-sm text-black">Financial & Activity Report for: {project?.name}</p>
+        <p className="mt-0.5 text-xs text-black">Date Generated: {new Date().toLocaleDateString()}</p>
       </div>
 
       <section>
-        <h2 className="mb-4 font-display text-2xl font-semibold">Financial Formula Summary</h2>
+        <h2 className="mb-4 font-display text-2xl font-semibold print:mb-2 print:text-base">Financial Formula Summary</h2>
         {isLoading ? (
           <div className="text-center py-10 text-muted-foreground">Loading report data...</div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-4">
+          // md: alone isn't reliable here — a real print engine's usable page
+          // width (page size minus margins) commonly lands just under the md
+          // breakpoint, so without print:grid-cols-4 this silently falls back
+          // to one column on paper even though it's a tidy 4-across on screen.
+          <div className="grid gap-4 md:grid-cols-4 print:grid-cols-4 print:gap-2">
             <StatCard
               label="Total Money (Budget+Rev+Invest)"
               value={fmtBDT(totalMoney)}
@@ -236,9 +324,9 @@ export function ReportsTab({ projectId }: { projectId: string }) {
       </section>
 
       {/* Breakdown Tables */}
-      <section className="grid gap-6 md:grid-cols-2">
-        <div className="noir-panel p-5 overflow-x-auto no-scrollbar">
-          <h3 className="mb-3 font-display text-lg font-semibold">Expenses by Category</h3>
+      <section className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-2">
+        <div className="noir-panel p-5 overflow-x-auto no-scrollbar print:p-3">
+          <h3 className="mb-3 font-display text-lg font-semibold print:mb-1 print:text-sm">Expenses by Category</h3>
           <table className="w-full text-sm">
             <thead className="border-b border-border/60 bg-surface-2 text-left text-[11px] uppercase tracking-widest text-muted-foreground">
               <tr>
@@ -265,8 +353,8 @@ export function ReportsTab({ projectId }: { projectId: string }) {
           </table>
         </div>
 
-        <div className="noir-panel p-5 overflow-x-auto no-scrollbar">
-          <h3 className="mb-3 font-display text-lg font-semibold">Revenue by Source</h3>
+        <div className="noir-panel p-5 overflow-x-auto no-scrollbar print:p-3">
+          <h3 className="mb-3 font-display text-lg font-semibold print:mb-1 print:text-sm">Revenue by Source</h3>
           <table className="w-full text-sm">
             <thead className="border-b border-border/60 bg-surface-2 text-left text-[11px] uppercase tracking-widest text-muted-foreground">
               <tr>
@@ -295,15 +383,17 @@ export function ReportsTab({ projectId }: { projectId: string }) {
       </section>
 
       <section>
-        <h2 className="mb-4 font-display text-2xl font-semibold">Shareholder Report</h2>
+        <h2 className="mb-4 font-display text-2xl font-semibold print:mb-2 print:text-base">Shareholder Report</h2>
         {filteredFinancials.shareholders.length === 0 ? (
           <div className="noir-panel px-4 py-10 text-center text-muted-foreground">
             No shareholders found.
           </div>
         ) : (
           <>
-            {/* Mobile / tablet: card list */}
-            <div className="grid gap-3 lg:hidden">
+            {/* Mobile / tablet: card list. Hidden on print — the table below
+                is far more compact on paper and is forced visible there
+                regardless of the lg: breakpoint (see its print:block). */}
+            <div className="grid gap-3 lg:hidden print:hidden">
               {filteredFinancials.shareholders.map((s: any) => {
                 const pct = Number(s.effective_ownership_pct ?? s.ownership_pct ?? 0);
                 const count = Number(s.effective_share_count ?? s.share_count ?? 0);
@@ -321,8 +411,10 @@ export function ReportsTab({ projectId }: { projectId: string }) {
               })}
             </div>
 
-            {/* Desktop: table */}
-            <div className="noir-panel hidden overflow-hidden lg:block">
+            {/* Desktop: table — also the print layout (print:block forces it
+                on even when the print engine's usable width lands under the
+                lg breakpoint, which is the common case on a real page). */}
+            <div className="noir-panel hidden overflow-hidden lg:block print:block">
               <div className="overflow-x-auto no-scrollbar">
               <table className="w-full text-sm">
                 <thead className="border-b border-border/60 bg-surface-2 text-left text-[11px] uppercase tracking-widest text-muted-foreground">

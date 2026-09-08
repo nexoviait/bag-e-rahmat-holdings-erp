@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/AppShell";
 import { DatePicker } from "@/components/DatePicker";
 import { useIsAdmin } from "@/lib/session";
 import { statusLabels, fmtDate, fmtBDT } from "@/lib/format";
-import { Plus, X, Loader2, Search, Edit2, Trash2, Filter, Building2, Wallet, Users, Calendar } from "lucide-react";
+import { Plus, X, Loader2, Search, Edit2, Trash2, Filter, Building2, Wallet, AlertTriangle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 export function ProjectsPage() {
@@ -17,7 +17,7 @@ export function ProjectsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const qc = useQueryClient();
 
-  const { data: projects, isLoading } = useQuery({
+  const { data: projects, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["projects-list"],
     queryFn: async () => {
       const res = await api.get("/projects");
@@ -128,14 +128,30 @@ export function ProjectsPage() {
         </div>
       )}
 
-      {filteredProjects.length === 0 && !isLoading && (
+      {isError && !isLoading && (
+        <div className="noir-panel px-4 py-16 text-center">
+          <AlertTriangle className="mx-auto mb-2 h-6 w-6 text-destructive" />
+          <p className="text-sm font-medium text-foreground">Couldn't load projects</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {(error as any)?.response?.data?.message || "Something went wrong. Please try again."}
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3.5 py-1.5 text-xs font-medium text-foreground transition hover:border-gold/50 cursor-pointer"
+          >
+            <RefreshCw className="h-3.5 w-3.5 text-gold" /> Retry
+          </button>
+        </div>
+      )}
+
+      {!isError && filteredProjects.length === 0 && !isLoading && (
         <div className="noir-panel px-4 py-16 text-center text-muted-foreground">
           No projects found.
         </div>
       )}
 
       {/* Mobile / tablet: card list */}
-      {filteredProjects.length > 0 && (
+      {!isError && filteredProjects.length > 0 && (
         <div className="grid gap-3 lg:hidden">
           {filteredProjects.map((p: any) => (
             <div key={p.id} className="noir-panel min-w-0 p-4">
@@ -210,7 +226,7 @@ export function ProjectsPage() {
       )}
 
       {/* Desktop: table */}
-      {filteredProjects.length > 0 && (
+      {!isError && filteredProjects.length > 0 && (
         <div className="noir-panel hidden overflow-hidden lg:block">
           <div className="overflow-x-auto no-scrollbar">
           <table className="w-full text-sm">

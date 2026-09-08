@@ -103,6 +103,61 @@
   --sidebar-ring: oklch(0.78 0.13 85 / 60%);
 }
 
+/* Print: this app has only one (dark "noir") theme, so anything printed
+   as-is inherits near-white text and pale gold accents meant for a dark
+   screen background — on white paper that's unreadable or, in gold-text's
+   case, fully invisible (see below). Rather than trying to make the dark
+   theme itself print-safe, printed pages get their own readable
+   dark-on-white palette here. Page-chrome elements (sidebar, headers, tab
+   bars) are hidden separately via print:hidden in the components that
+   render them — this block only handles color/contrast for whatever
+   content is actually left on the page. */
+@media print {
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.2 0.01 60);
+    --surface: oklch(0.99 0.002 90);
+    --surface-2: oklch(0.96 0.004 90);
+    --muted-foreground: oklch(0.4 0.01 70);
+    --border: oklch(0.82 0.01 70);
+    --success: oklch(0.42 0.14 155);
+    --destructive: oklch(0.5 0.2 25);
+    --gold: oklch(0.5 0.13 85);
+  }
+
+  html, body {
+    background: white !important;
+    color: oklch(0.2 0.01 60) !important;
+  }
+
+  /* gold-text fills the text via a CSS gradient background clipped to the
+     glyph shapes, with color:transparent so only the gradient shows through.
+     Browsers skip background graphics by default when printing (Chrome's
+     print dialog has "Background graphics" OFF unless the user opts in), so
+     the gradient never renders and the text prints as literally nothing —
+     transparent, with no fallback color. Print gets a plain solid color
+     instead of the gradient-clip trick. */
+  .gold-text {
+    background: none !important;
+    -webkit-text-fill-color: currentColor !important;
+    color: oklch(0.5 0.13 85) !important;
+  }
+
+  .noir-panel {
+    background: white !important;
+    border: 1px solid oklch(0.85 0.01 70) !important;
+    box-shadow: none !important;
+  }
+
+  /* Screen-sized table cell padding (px-4 py-3 etc.) reads as generous
+     whitespace on a printed page rather than breathing room, and is a big
+     part of why a short report spills onto a second mostly-empty page. */
+  table th,
+  table td {
+    padding: 0.35rem 0.6rem !important;
+  }
+}
+
 @layer base {
   * {
     border-color: var(--border);
@@ -129,6 +184,7 @@ input.pi,
 select.pi,
 textarea.pi {
   width: 100% !important;
+  max-width: 100% !important;
   background-color: var(--input) !important;
   border: 1px solid var(--border) !important;
   color: var(--foreground) !important;
@@ -137,6 +193,13 @@ textarea.pi {
   font-size: 0.875rem !important;
   outline: none !important;
   transition: all 0.15s ease-in-out !important;
+  box-sizing: border-box !important;
+}
+
+select.pi {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 input.input:focus,
