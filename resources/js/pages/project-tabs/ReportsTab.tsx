@@ -4,11 +4,39 @@ import { api } from "@/lib/api";
 import { StatCard } from "@/components/StatCard";
 import { fmtBDT } from "@/lib/format";
 import { DatePicker } from "@/components/DatePicker";
-import { Printer, Download, Calendar } from "lucide-react";
+import { Printer, Download, Calendar, FileText, FileType } from "lucide-react";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, TextRun, HeadingLevel, WidthType, AlignmentType } from "docx";
+
+type TimeFilter = "today" | "week" | "month" | "year" | "all" | "custom";
+
+const PERIOD_LABELS: Record<TimeFilter, string> = {
+  today: "Today",
+  week: "This Week",
+  month: "This Month",
+  year: "This Year",
+  all: "All Time",
+  custom: "Custom Range",
+};
+
+// Monday–Sunday of the week `now` falls in — a calendar week, matching how
+// "This Month"/"This Year" are already calendar periods rather than a
+// rolling "last 7 days" window.
+function currentWeekRange(now: Date): { start: string; end: string } {
+  const day = now.getDay(); // 0=Sun..6=Sat
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diffToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  return { start: fmt(monday), end: fmt(sunday) };
+}
 
 export function ReportsTab({ projectId }: { projectId: string }) {
-  const [timeFilter, setTimeFilter] = useState<"all" | "month" | "year" | "custom">("all");
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
 
@@ -50,17 +78,24 @@ export function ReportsTab({ projectId }: { projectId: string }) {
         expenses: 0,
         owner: 0,
         invest: 0,
+        materialsCost: 0,
+        laborCost: 0,
+        materialsBySupplier: {} as Record<string, number>,
         expByCat: {} as Record<string, number>,
         revBySource: {} as Record<string, number>,
         shareholders: [],
       };
 
     const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const weekRange = currentWeekRange(now);
     const currentYearMonth = now.toISOString().slice(0, 7);
     const currentYear = now.getFullYear().toString();
 
     const filterFn = (row: any) => {
       if (!row.date) return true;
+      if (timeFilter === "today") return row.date === todayStr;
+      if (timeFilter === "week") return row.date >= weekRange.start && row.date <= weekRange.end;
       if (timeFilter === "month") return row.date.startsWith(currentYearMonth);
       if (timeFilter === "year") return row.date.startsWith(currentYear);
       if (timeFilter === "custom") {
@@ -75,6 +110,8 @@ export function ReportsTab({ projectId }: { projectId: string }) {
     const eRows = (data.expenses || []).filter(filterFn);
     const oRows = (data.ownerPayments || []).filter(filterFn);
     const siRows = (data.shareholderInvestments || []).filter(filterFn);
+    const mRows = (data.materialTransactions || []).filter(filterFn);
+    const lRows = (data.laborLogs || []).filter(filterFn);
 
     const sum = (rows: any[]) => rows.reduce((s, x) => s + Number(x.amount ?? 0), 0);
 
@@ -95,12 +132,24 @@ export function ReportsTab({ projectId }: { projectId: string }) {
         .filter((i: any) => i.shareholder_id === id)
         .reduce((s: number, i: any) => s + Number(i.amount), 0);
 
+    // Grouped by supplier with a subtotal per supplier — mirrors how site
+    // purchases are actually tracked (each supplier's deliveries reconciled
+    // together), same shape as the Expense/Revenue breakdowns below.
+    const materialsBySupplier = mRows.reduce((acc: Record<string, number>, row: any) => {
+      const sup = row.supplier || "Unspecified supplier";
+      acc[sup] = (acc[sup] || 0) + Number(row.total_cost ?? 0);
+      return acc;
+    }, {} as Record<string, number>);
+
     return {
       budget: sum(bRows),
       revenue: sum(rRows),
       expenses: sum(eRows),
       owner: sum(oRows),
       invest: sum(siRows),
+      materialsCost: mRows.reduce((s: number, x: any) => s + Number(x.total_cost ?? 0), 0),
+      laborCost: lRows.reduce((s: number, x: any) => s + Number(x.total_cost ?? 0), 0),
+      materialsBySupplier,
       expByCat,
       revBySource,
       shareholders: (data.shareholders || []).map((s: any) => ({
@@ -111,8 +160,10 @@ export function ReportsTab({ projectId }: { projectId: string }) {
   }, [data, timeFilter, customStart, customEnd]);
 
   const totalMoney = filteredFinancials.budget + filteredFinancials.revenue + filteredFinancials.invest;
-  const deductMoney = filteredFinancials.expenses + filteredFinancials.owner;
-  const profit = filteredFinancials.revenue - filteredFinancials.expenses;
+  const deductMoney =
+    filteredFinancials.expenses + filteredFinancials.owner + filteredFinancials.materialsCost + filteredFinancials.laborCost;
+  const profit =
+    filteredFinancials.revenue - filteredFinancials.expenses - filteredFinancials.materialsCost - filteredFinancials.laborCost;
   const net = totalMoney - deductMoney;
 
   function handlePrint() {
@@ -142,14 +193,16 @@ export function ReportsTab({ projectId }: { projectId: string }) {
       [],
       ["Financial Formulas Summary", "Amount (BDT)"],
       ["Total Money (Budget + Revenue + Invest)", totalMoney],
-      ["Deduct Money (Expenses + Owner Payments)", deductMoney],
+      ["Deduct Money (Expenses + Materials + Labor + Owner Payments)", deductMoney],
       ["Remaining Net Cash Balance", net],
-      ["Gross Profit / Loss (Revenue - Expenses)", profit],
+      ["Gross Profit / Loss (Revenue - Expenses - Materials - Labor)", profit],
       [],
       ["Detailed Breakdown Metric", "Amount (BDT)"],
       ["Total Budget", filteredFinancials.budget],
       ["Total Revenue", filteredFinancials.revenue],
       ["Total Expenses", filteredFinancials.expenses],
+      ["Total Materials Cost", filteredFinancials.materialsCost],
+      ["Total Labor Cost", filteredFinancials.laborCost],
       ["Total Owner Payments", filteredFinancials.owner],
       ["Total Investments", filteredFinancials.invest],
       [],
@@ -162,6 +215,11 @@ export function ReportsTab({ projectId }: { projectId: string }) {
       ...(Object.keys(filteredFinancials.revBySource).length > 0
         ? Object.entries(filteredFinancials.revBySource).map(([src, amt]) => [src, amt])
         : [["No revenue in this period.", ""]]),
+      [],
+      ["Materials by Supplier", "Subtotal (BDT)"],
+      ...(Object.keys(filteredFinancials.materialsBySupplier).length > 0
+        ? Object.entries(filteredFinancials.materialsBySupplier).map(([sup, amt]) => [sup, amt])
+        : [["No material purchases in this period.", ""]]),
       [],
       ["Shareholder Report", "Ownership %", "Shares", "Total Invested (BDT)"],
       ...(filteredFinancials.shareholders.length > 0
@@ -192,6 +250,202 @@ export function ReportsTab({ projectId }: { projectId: string }) {
     toast.success("Financial report exported");
   }
 
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function reportFileBaseName() {
+    const safeName = (project?.name || "project").replace(/[^a-z0-9]+/gi, "_");
+    return `financial_report_${safeName}_${new Date().toISOString().slice(0, 10)}`;
+  }
+
+  // Simple two-column "label, amount" table sections shared by both PDF and
+  // Word export — kept as plain data here so each renderer just lays it out
+  // in its own format instead of duplicating the numbers.
+  function reportSections(): { title: string; rows: [string, string][] }[] {
+    return [
+      {
+        title: "Financial Formula Summary",
+        rows: [
+          ["Total Money (Budget + Revenue + Invest)", fmtBDT(totalMoney)],
+          ["Deduct Money (Expenses + Materials + Labor + Owner)", fmtBDT(deductMoney)],
+          ["Remaining Net Cash Balance", fmtBDT(net)],
+          ["Gross Profit / Loss", fmtBDT(profit)],
+        ],
+      },
+      {
+        title: "Detailed Breakdown",
+        rows: [
+          ["Total Budget", fmtBDT(filteredFinancials.budget)],
+          ["Total Revenue", fmtBDT(filteredFinancials.revenue)],
+          ["Total Expenses", fmtBDT(filteredFinancials.expenses)],
+          ["Total Materials Cost", fmtBDT(filteredFinancials.materialsCost)],
+          ["Total Labor Cost", fmtBDT(filteredFinancials.laborCost)],
+          ["Total Owner Payments", fmtBDT(filteredFinancials.owner)],
+          ["Total Investments", fmtBDT(filteredFinancials.invest)],
+        ],
+      },
+      {
+        title: "Expenses by Category",
+        rows:
+          Object.keys(filteredFinancials.expByCat).length > 0
+            ? Object.entries(filteredFinancials.expByCat).map(([k, v]) => [k, fmtBDT(Number(v))] as [string, string])
+            : [["No expenses in this period.", ""]],
+      },
+      {
+        title: "Revenue by Source",
+        rows:
+          Object.keys(filteredFinancials.revBySource).length > 0
+            ? Object.entries(filteredFinancials.revBySource).map(([k, v]) => [k, fmtBDT(Number(v))] as [string, string])
+            : [["No revenue in this period.", ""]],
+      },
+      {
+        title: "Materials by Supplier",
+        rows:
+          Object.keys(filteredFinancials.materialsBySupplier).length > 0
+            ? Object.entries(filteredFinancials.materialsBySupplier).map(([k, v]) => [k, fmtBDT(Number(v))] as [string, string])
+            : [["No material purchases in this period.", ""]],
+      },
+    ];
+  }
+
+  function shareholderRows(): [string, string, string][] {
+    if (filteredFinancials.shareholders.length === 0) return [["No shareholders found.", "", ""]];
+    return filteredFinancials.shareholders.map((s: any) => {
+      const pct = Number(s.effective_ownership_pct ?? s.ownership_pct ?? 0);
+      const count = Number(s.effective_share_count ?? s.share_count ?? 0);
+      return [s.name, count > 0 ? `${pct}% (${count} shares)` : `${pct}%`, fmtBDT(Number(s.invested))];
+    });
+  }
+
+  function handleExportPDF() {
+    if (!data) return;
+    const doc = new jsPDF();
+    const marginX = 14;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let y = 18;
+
+    doc.setFontSize(16);
+    doc.text(reportAppName, marginX, y);
+    y += 6;
+    doc.setFontSize(10);
+    doc.text(`${reportAppSubtitle} — Financial Report`, marginX, y);
+    y += 6;
+    doc.setFontSize(11);
+    doc.text(project?.name || "", marginX, y);
+    y += 5;
+    doc.setFontSize(9);
+    doc.setTextColor(110);
+    doc.text(`Period: ${PERIOD_LABELS[timeFilter]}   ·   Generated: ${new Date().toLocaleDateString()}`, marginX, y);
+    doc.setTextColor(0);
+    y += 6;
+
+    for (const section of reportSections()) {
+      if (y > pageHeight - 40) {
+        doc.addPage();
+        y = 18;
+      }
+      autoTable(doc, {
+        startY: y,
+        head: [[section.title, "Amount (BDT)"]],
+        body: section.rows,
+        theme: "grid",
+        headStyles: { fillColor: [180, 140, 40] },
+        margin: { left: marginX, right: marginX },
+        styles: { fontSize: 9 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 8;
+    }
+
+    if (y > pageHeight - 40) {
+      doc.addPage();
+      y = 18;
+    }
+    autoTable(doc, {
+      startY: y,
+      head: [["Shareholder", "Ownership", "Total Invested"]],
+      body: shareholderRows(),
+      theme: "grid",
+      headStyles: { fillColor: [180, 140, 40] },
+      margin: { left: marginX, right: marginX },
+      styles: { fontSize: 9 },
+    });
+
+    doc.save(`${reportFileBaseName()}.pdf`);
+    toast.success("PDF report exported");
+  }
+
+  async function handleExportDOCX() {
+    if (!data) return;
+
+    const sectionBlocks = reportSections().flatMap((section) => [
+      new Paragraph({ text: section.title, heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 80 } }),
+      new DocxTable({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: section.rows.map(
+          ([label, amount]) =>
+            new TableRow({
+              children: [
+                new TableCell({ width: { size: 70, type: WidthType.PERCENTAGE }, children: [new Paragraph(label)] }),
+                new TableCell({
+                  width: { size: 30, type: WidthType.PERCENTAGE },
+                  children: [new Paragraph({ text: amount, alignment: AlignmentType.RIGHT })],
+                }),
+              ],
+            })
+        ),
+      }),
+    ]);
+
+    const shRows = shareholderRows();
+    const shareholderTable = new DocxTable({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          children: ["Shareholder", "Ownership", "Total Invested"].map(
+            (h) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: h, bold: true })] })] })
+          ),
+        }),
+        ...shRows.map(
+          (r) =>
+            new TableRow({
+              children: r.map((cell, i) => new TableCell({ children: [new Paragraph({ text: cell, alignment: i > 0 ? AlignmentType.RIGHT : AlignmentType.LEFT })] })),
+            })
+        ),
+      ],
+    });
+
+    const docx = new Document({
+      sections: [
+        {
+          children: [
+            new Paragraph({ text: reportAppName, heading: HeadingLevel.TITLE }),
+            new Paragraph({ text: `${reportAppSubtitle} — Financial Report`, spacing: { after: 120 } }),
+            new Paragraph({ text: project?.name || "", heading: HeadingLevel.HEADING_1 }),
+            new Paragraph({
+              text: `Period: ${PERIOD_LABELS[timeFilter]}   ·   Generated: ${new Date().toLocaleDateString()}`,
+              spacing: { after: 200 },
+            }),
+            ...sectionBlocks,
+            new Paragraph({ text: "Shareholder Report", heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 80 } }),
+            shareholderTable,
+          ],
+        },
+      ],
+    });
+
+    const blob = await Packer.toBlob(docx);
+    downloadBlob(blob, `${reportFileBaseName()}.docx`);
+    toast.success("Word report exported");
+  }
+
   return (
     <div className="space-y-10 print:space-y-4">
       {/* Header & Filter Controls */}
@@ -204,9 +458,11 @@ export function ReportsTab({ projectId }: { projectId: string }) {
             onChange={(e) => setTimeFilter(e.target.value as any)}
             className="rounded-md border border-border bg-input px-3 py-1.5 text-xs text-foreground outline-none focus:border-gold"
           >
-            <option value="all">All Time</option>
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
             <option value="month">This Month</option>
             <option value="year">This Year</option>
+            <option value="all">All Time</option>
             <option value="custom">Custom Range</option>
           </select>
 
@@ -231,18 +487,30 @@ export function ReportsTab({ projectId }: { projectId: string }) {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleExportReportCSV}
             className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3.5 py-1.5 text-xs font-medium text-foreground transition hover:border-gold/50 cursor-pointer"
           >
-            <Download className="h-3.5 w-3.5 text-gold" /> Export CSV
+            <Download className="h-3.5 w-3.5 text-gold" /> CSV
+          </button>
+          <button
+            onClick={handleExportPDF}
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3.5 py-1.5 text-xs font-medium text-foreground transition hover:border-gold/50 cursor-pointer"
+          >
+            <FileText className="h-3.5 w-3.5 text-gold" /> PDF
+          </button>
+          <button
+            onClick={handleExportDOCX}
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3.5 py-1.5 text-xs font-medium text-foreground transition hover:border-gold/50 cursor-pointer"
+          >
+            <FileType className="h-3.5 w-3.5 text-gold" /> Word
           </button>
           <button
             onClick={handlePrint}
             className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground shadow-gold transition hover:opacity-95 cursor-pointer"
           >
-            <Printer className="h-3.5 w-3.5" /> Print Report
+            <Printer className="h-3.5 w-3.5" /> Print
           </button>
         </div>
       </div>
@@ -309,7 +577,7 @@ export function ReportsTab({ projectId }: { projectId: string }) {
               accent="green"
             />
             <StatCard
-              label="Deduct Money (Exp+Owner)"
+              label="Deduct Money (Exp+Materials+Labor+Owner)"
               value={fmtBDT(deductMoney)}
               accent="red"
             />
@@ -324,7 +592,7 @@ export function ReportsTab({ projectId }: { projectId: string }) {
       </section>
 
       {/* Breakdown Tables */}
-      <section className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-2">
+      <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-3 print:gap-2">
         <div className="noir-panel p-5 overflow-x-auto no-scrollbar print:p-3">
           <h3 className="mb-3 font-display text-lg font-semibold print:mb-1 print:text-sm">Expenses by Category</h3>
           <table className="w-full text-sm">
@@ -373,6 +641,34 @@ export function ReportsTab({ projectId }: { projectId: string }) {
                 Object.entries(filteredFinancials.revBySource).map(([src, amt]) => (
                   <tr key={src} className="border-b border-border/40 last:border-0">
                     <td className="px-3 py-2">{src}</td>
+                    <td className="px-3 py-2 text-right font-medium">{fmtBDT(Number(amt))}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="noir-panel p-5 overflow-x-auto no-scrollbar print:p-3">
+          <h3 className="mb-3 font-display text-lg font-semibold print:mb-1 print:text-sm">Materials by Supplier</h3>
+          <table className="w-full text-sm">
+            <thead className="border-b border-border/60 bg-surface-2 text-left text-[11px] uppercase tracking-widest text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2">Supplier</th>
+                <th className="px-3 py-2 text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(filteredFinancials.materialsBySupplier).length === 0 ? (
+                <tr>
+                  <td colSpan={2} className="px-3 py-6 text-center text-muted-foreground">
+                    No material purchases in this period.
+                  </td>
+                </tr>
+              ) : (
+                Object.entries(filteredFinancials.materialsBySupplier).map(([sup, amt]) => (
+                  <tr key={sup} className="border-b border-border/40 last:border-0">
+                    <td className="px-3 py-2">{sup}</td>
                     <td className="px-3 py-2 text-right font-medium">{fmtBDT(Number(amt))}</td>
                   </tr>
                 ))

@@ -4,8 +4,9 @@ import { api } from "@/lib/api";
 import { fmtBDT, fmtDate } from "@/lib/format";
 import { useCanEditFinancials } from "@/lib/session";
 import { DatePicker } from "@/components/DatePicker";
-import { Plus, Trash2, Edit2, Loader2, X, Download, Search, Calendar, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Edit2, Loader2, X, Download, Search, Calendar, RefreshCw, Paperclip } from "lucide-react";
 import { toast } from "sonner";
+import { useReceiptPreview, ReceiptPreviewModal } from "@/components/ReceiptViewer";
 
 type Row = Record<string, any>;
 
@@ -38,6 +39,7 @@ export function FinancialModule({
 }) {
   const qc = useQueryClient();
   const canEdit = useCanEditFinancials();
+  const receiptPreview = useReceiptPreview();
   const [open, setOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<Row | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -225,7 +227,18 @@ export function FinancialModule({
             <div key={row.id} className="noir-panel min-w-0 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="text-xs text-muted-foreground">{fmtDate(row.date)}</div>
-                <div className="font-semibold gold-text">{fmtBDT(row[amountField])}</div>
+                <div className="flex items-center gap-2">
+                  {row.receipt_path && (
+                    <button
+                      onClick={() => receiptPreview.open(`/financials/${table}/${row.id}/receipt`)}
+                      title="View receipt"
+                      className="text-muted-foreground hover:text-gold cursor-pointer"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </button>
+                  )}
+                  <div className="font-semibold gold-text">{fmtBDT(row[amountField])}</div>
+                </div>
               </div>
 
               <div className="mt-2 space-y-1.5">
@@ -320,7 +333,20 @@ export function FinancialModule({
                         {c.render ? c.render(row) : row[c.key] ?? "—"}
                       </td>
                     ))}
-                    <td className="px-4 py-3 text-right font-medium">{fmtBDT(row[amountField])}</td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      <div className="flex items-center justify-end gap-2">
+                        {row.receipt_path && (
+                          <button
+                            onClick={() => receiptPreview.open(`/financials/${table}/${row.id}/receipt`)}
+                            title="View receipt"
+                            className="text-muted-foreground hover:text-gold cursor-pointer"
+                          >
+                            <Paperclip className="h-4 w-4" />
+                          </button>
+                        )}
+                        {fmtBDT(row[amountField])}
+                      </div>
+                    </td>
                     {canEdit && (
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -368,6 +394,14 @@ export function FinancialModule({
           }}
         />
       )}
+
+      {receiptPreview.preview && (
+        <ReceiptPreviewModal
+          url={receiptPreview.preview.url}
+          mime={receiptPreview.preview.mime}
+          onClose={receiptPreview.close}
+        />
+      )}
     </div>
   );
 }
@@ -391,6 +425,8 @@ function RecordDialog({
 }) {
   const qc = useQueryClient();
   const [customModes, setCustomModes] = useState<Record<string, boolean>>({});
+  const [receipt, setReceipt] = useState<File | null>(null);
+  const receiptPreview = useReceiptPreview();
 
   const [values, setValues] = useState<Row>(() => {
     if (initialData) {
@@ -426,11 +462,22 @@ function RecordDialog({
           f.type === "number" || f.key === amountField ? Number(v) : v === "" ? null : v;
       }
 
-      if (initialData?.id) {
-        await api.put(`/financials/${table}/${initialData.id}`, payload);
-      } else {
-        await api.post(`/financials/${table}`, payload);
+      const url = initialData?.id ? `/financials/${table}/${initialData.id}` : `/financials/${table}`;
+
+      if (!receipt) {
+        if (initialData?.id) await api.put(url, payload);
+        else await api.post(url, payload);
+        return;
       }
+
+      // A file forces multipart, and PUT-with-multipart is unreliable across
+      // browsers/proxies — Laravel's documented workaround is POST with a
+      // `_method` override field, which its routing treats as the real verb.
+      const formData = new FormData();
+      Object.entries(payload).forEach(([k, v]) => formData.append(k, v ?? ""));
+      formData.append("receipt", receipt);
+      if (initialData?.id) formData.append("_method", "PUT");
+      await api.post(url, formData, { headers: { "Content-Type": "multipart/form-data" } });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [table, projectId] });
@@ -557,6 +604,31 @@ function RecordDialog({
               </div>
             );
           })}
+          <div className="block">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Receipt (optional — JPG, PNG or PDF)
+              </span>
+              {initialData?.receipt_path && (
+                <button
+                  type="button"
+                  onClick={() => receiptPreview.open(`/financials/${table}/${initialData.id}/receipt`)}
+                  className="text-[11px] font-medium text-gold hover:underline cursor-pointer"
+                >
+                  View current receipt
+                </button>
+              )}
+            </div>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,application/pdf"
+              onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+              className="dlg-input file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-foreground"
+            />
+            {initialData?.receipt_path && (
+              <p className="mt-1 text-[11px] text-muted-foreground">Choosing a new file replaces the current receipt.</p>
+            )}
+          </div>
           <button
             type="submit"
             disabled={save.isPending}
@@ -580,6 +652,14 @@ function RecordDialog({
           .dlg-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px color-mix(in oklab, var(--gold) 20%, transparent); }
         `}</style>
       </div>
+
+      {receiptPreview.preview && (
+        <ReceiptPreviewModal
+          url={receiptPreview.preview.url}
+          mime={receiptPreview.preview.mime}
+          onClose={receiptPreview.close}
+        />
+      )}
     </div>
   );
 }

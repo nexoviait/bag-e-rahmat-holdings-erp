@@ -6,7 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class Revenue extends Model
 {
-    protected $fillable = ['project_id', 'source', 'reference_no', 'description', 'date', 'amount', 'created_by'];
+    protected $fillable = [
+        'project_id', 'source', 'reference_no', 'description', 'date', 'amount', 'created_by',
+        'receipt_path', 'receipt_name', 'receipt_mime',
+    ];
 
     public function project()
     {

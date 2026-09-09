@@ -90,6 +90,8 @@ export function OverviewTab({ projectId }: { projectId: string }) {
   const rawOwner = summary?.owner ?? 0;
   const rawProjectBudget = Number(project?.total_shareholder_project_price ?? summary?.budget ?? 0);
   const rawInvest = summary?.invest ?? 0;
+  const rawMaterialsCost = summary?.materialsCost ?? 0;
+  const rawLaborCost = summary?.laborCost ?? 0;
 
   // Check if active view is divided share or full project
   const isDividedView = !isAdmin && viewMode === "divided" && mySh && pct > 0;
@@ -99,8 +101,12 @@ export function OverviewTab({ projectId }: { projectId: string }) {
   const expenses = isDividedView ? rawExpenses * shareRatio : rawExpenses;
   const owner = isDividedView ? rawOwner * shareRatio : rawOwner;
   const invest = isDividedView ? myLoggedInvestments : rawInvest;
-  const profit = revenue - expenses;
-  const netCashBalance = (revenue + invest) - (expenses + owner);
+  // Materials Cost and Labor Cost are their own P&L line — not folded into
+  // "Expenses" (see the Site Tracking module plan for why they're kept separate).
+  const materialsCost = isDividedView ? rawMaterialsCost * shareRatio : rawMaterialsCost;
+  const laborCost = isDividedView ? rawLaborCost * shareRatio : rawLaborCost;
+  const profit = revenue - expenses - materialsCost - laborCost;
+  const netCashBalance = (revenue + invest) - (expenses + owner + materialsCost + laborCost);
 
   // Expenses grouped by category
   const byCat = Object.entries(
@@ -161,7 +167,7 @@ export function OverviewTab({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-4">
         <StatCard
           label={isDividedView ? "My Share Budget" : "Project Budget"}
           value={fmtBDT(projectBudget)}
@@ -175,6 +181,16 @@ export function OverviewTab({ projectId }: { projectId: string }) {
         <StatCard
           label={isDividedView ? "My Expense Share" : "Expenses"}
           value={fmtBDT(expenses)}
+          accent="red"
+        />
+        <StatCard
+          label={isDividedView ? "My Materials Cost" : "Materials Cost"}
+          value={fmtBDT(materialsCost)}
+          accent="red"
+        />
+        <StatCard
+          label={isDividedView ? "My Labor Cost" : "Labor Cost"}
+          value={fmtBDT(laborCost)}
           accent="red"
         />
         <StatCard

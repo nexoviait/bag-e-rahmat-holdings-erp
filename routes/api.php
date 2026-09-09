@@ -21,6 +21,10 @@ use App\Modules\Cctv\Http\Controllers\StreamController as CctvStreamController;
 use App\Modules\Cctv\Http\Controllers\MediaMtxAuthController;
 use App\Modules\Cctv\Http\Controllers\PtzController as CctvPtzController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Modules\SiteTracking\Http\Controllers\MaterialController;
+use App\Modules\SiteTracking\Http\Controllers\MaterialTransactionController;
+use App\Modules\SiteTracking\Http\Controllers\LaborLogController;
+use App\Modules\SiteTracking\Http\Controllers\SiteDailySummaryController;
 
 Route::prefix('v1')->group(function () {
     // System Settings (Public)
@@ -100,6 +104,26 @@ Route::prefix('v1')->group(function () {
         Route::get('/cctv/projects', [CctvStatusController::class, 'projects']);
         Route::get('/cctv/status', CctvStatusController::class);
 
+        // Site Tracking — Materials (per-project catalog + IN/OUT transactions)
+        Route::get('/materials', [MaterialController::class, 'index']);
+        Route::post('/materials', [MaterialController::class, 'store']);
+        Route::put('/materials/{id}', [MaterialController::class, 'update']);
+        Route::delete('/materials/{id}', [MaterialController::class, 'destroy']);
+
+        Route::get('/material-transactions', [MaterialTransactionController::class, 'index']);
+        Route::post('/material-transactions', [MaterialTransactionController::class, 'store']);
+        Route::put('/material-transactions/{id}', [MaterialTransactionController::class, 'update']);
+        Route::delete('/material-transactions/{id}', [MaterialTransactionController::class, 'destroy']);
+
+        // Site Tracking — Daily Labor
+        Route::get('/labor-logs', [LaborLogController::class, 'index']);
+        Route::post('/labor-logs', [LaborLogController::class, 'store']);
+        Route::put('/labor-logs/{id}', [LaborLogController::class, 'update']);
+        Route::delete('/labor-logs/{id}', [LaborLogController::class, 'destroy']);
+
+        // Site Tracking — Daily rollup (expenses+revenue+materials+labor for one date)
+        Route::get('/projects/{id}/daily-summary', [SiteDailySummaryController::class, 'show']);
+
         // Notifications (generic — not Cctv-specific; camera-offline alerts are
         // just today's only producer of the shared Laravel notifications table)
         Route::get('/notifications', [NotificationController::class, 'index']);
@@ -111,6 +135,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/financials/{type}', [FinancialController::class, 'store']);
         Route::put('/financials/{type}/{id}', [FinancialController::class, 'update']);
         Route::delete('/financials/{type}/{id}', [FinancialController::class, 'destroy']);
+        Route::get('/financials/{type}/{id}/receipt', [FinancialController::class, 'receipt']);
 
         // Shareholders & Investments
         Route::get('/shareholders', [ShareholderController::class, 'index']);

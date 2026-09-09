@@ -129,4 +129,19 @@ class Project extends Model
     {
         return $this->hasMany(DvrDevice::class);
     }
+
+    public function materials()
+    {
+        return $this->hasMany(Material::class);
+    }
+
+    public function materialTransactions()
+    {
+        return $this->hasMany(MaterialTransaction::class);
+    }
+
+    public function laborLogs()
+    {
+        return $this->hasMany(LaborLog::class);
+    }
 }

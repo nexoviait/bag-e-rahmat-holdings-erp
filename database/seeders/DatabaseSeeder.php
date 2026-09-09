@@ -35,6 +35,8 @@ class DatabaseSeeder extends Seeder
             'cctv.view', 'cctv.devices.view', 'cctv.devices.create', 'cctv.devices.edit',
             'cctv.devices.delete', 'cctv.devices.test', 'cctv.cameras.edit', 'cctv.snapshot',
             'cctv.logs.view', 'cctv.assign', 'cctv.playback.view',
+            'materials.view', 'materials.create', 'materials.edit', 'materials.delete',
+            'labor.view', 'labor.create', 'labor.edit', 'labor.delete',
         ];
 
         foreach ($permissions as $p) {
@@ -58,6 +60,8 @@ class DatabaseSeeder extends Seeder
                 'shareholders.view', 'reports.view',
                 'documents.view', 'documents.create', 'documents.edit', 'documents.delete',
                 'cctv.view', 'cctv.snapshot',
+                'materials.view', 'materials.create', 'materials.edit', 'materials.delete',
+                'labor.view', 'labor.create', 'labor.edit', 'labor.delete',
             ],
         ];
 
