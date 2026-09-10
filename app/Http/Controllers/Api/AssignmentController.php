@@ -56,9 +56,15 @@ class AssignmentController extends Controller
                     'project_id' => $validated['project_id'],
                 ]);
             } else {
+                // Deliberately ->get()->each->delete() rather than a single
+                // bulk ->delete() — a mass query-builder delete never fires
+                // Eloquent's per-model `deleted` event, which is what
+                // ChatServiceProvider listens on to soft-leave the user from
+                // this project's conversations the moment they're unassigned.
                 ProjectAssignment::where('user_id', $validated['user_id'])
                     ->where('project_id', $validated['project_id'])
-                    ->delete();
+                    ->get()
+                    ->each(fn (ProjectAssignment $assignment) => $assignment->delete());
             }
 
             return response()->json(['message' => 'Project assignment updated successfully']);

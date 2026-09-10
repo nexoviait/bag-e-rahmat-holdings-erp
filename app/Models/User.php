@@ -18,6 +18,8 @@ class User extends Authenticatable
         'password',
         'phone',
         'is_active',
+        'avatar_path',
+        'last_seen_at',
     ];
 
     protected $hidden = [
@@ -31,6 +33,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'last_seen_at' => 'datetime',
         ];
     }
 
@@ -52,5 +55,17 @@ class User extends Authenticatable
     public function assignedCameras()
     {
         return $this->belongsToMany(CameraChannel::class, 'camera_user_assignments')->withTimestamps();
+    }
+
+    public function conversationParticipants()
+    {
+        return $this->hasMany(ConversationParticipant::class);
+    }
+
+    public function conversations()
+    {
+        return $this->belongsToMany(Conversation::class, 'conversation_participants')
+            ->withPivot(['role', 'muted', 'joined_at', 'left_at', 'last_read_message_id', 'last_read_at'])
+            ->withTimestamps();
     }
 }

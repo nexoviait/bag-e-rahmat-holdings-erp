@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\MarkStaleCallsAsMissed;
 use App\Console\Commands\PollCctvHealth;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -19,6 +20,16 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    // NOT passed as withRouting()'s `channels:` shortcut — that registers
+    // /broadcasting/auth with Laravel's own default ['middleware' => ['web']],
+    // which needs a cookie session + CSRF token. This app is pure Sanctum
+    // Bearer-token auth (see AuthController — no session, no CSRF anywhere),
+    // so the auth check for private/presence channel subscriptions has to run
+    // through auth:sanctum instead, or every subscription attempt just 403s.
+    ->withBroadcasting(
+        __DIR__.'/../routes/channels.php',
+        attributes: ['middleware' => ['auth:sanctum']],
+    )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
@@ -30,6 +41,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // Requires the Laravel scheduler cron entry to actually run in
         // production: `* * * * * php artisan schedule:run` (see deployment docs).
         $schedule->command(PollCctvHealth::class)->everyFiveMinutes()->withoutOverlapping();
+        // Every minute, not every five — a call ringing unanswered for a
+        // full 5 minutes before flipping to "missed" would be a much worse
+        // caller experience than the 60s staleness threshold this enforces.
+        $schedule->command(MarkStaleCallsAsMissed::class)->everyMinute()->withoutOverlapping();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // Ensures every API error response is a clean, friendly JSON message

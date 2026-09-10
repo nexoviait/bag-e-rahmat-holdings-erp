@@ -144,4 +144,9 @@ class Project extends Model
     {
         return $this->hasMany(LaborLog::class);
     }
+
+    public function conversations()
+    {
+        return $this->hasMany(Conversation::class);
+    }
 }

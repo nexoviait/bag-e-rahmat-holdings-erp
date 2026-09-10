@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\ProjectDocumentController;
 use App\Http\Controllers\Api\DocumentTypeController;
+use App\Http\Middleware\UpdateLastSeenAt;
 use App\Modules\Cctv\Http\Controllers\DeviceController as CctvDeviceController;
 use App\Modules\Cctv\Http\Controllers\CameraController as CctvCameraController;
 use App\Modules\Cctv\Http\Controllers\CameraAccessController as CctvCameraAccessController;
@@ -41,7 +42,7 @@ Route::prefix('v1')->group(function () {
     // endpoint not behind Sanctum.
     Route::middleware('throttle:120,1')->post('/cctv/mediamtx/auth', MediaMtxAuthController::class);
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', UpdateLastSeenAt::class])->group(function () {
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::put('/auth/profile', [AuthController::class, 'updateProfile']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -114,6 +115,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/material-transactions', [MaterialTransactionController::class, 'store']);
         Route::put('/material-transactions/{id}', [MaterialTransactionController::class, 'update']);
         Route::delete('/material-transactions/{id}', [MaterialTransactionController::class, 'destroy']);
+        Route::get('/material-transactions/{id}/receipt', [MaterialTransactionController::class, 'receipt']);
 
         // Site Tracking — Daily Labor
         Route::get('/labor-logs', [LaborLogController::class, 'index']);
@@ -123,6 +125,11 @@ Route::prefix('v1')->group(function () {
 
         // Site Tracking — Daily rollup (expenses+revenue+materials+labor for one date)
         Route::get('/projects/{id}/daily-summary', [SiteDailySummaryController::class, 'show']);
+
+        // Chat & Calling — see routes/chat.php (first route-file split in
+        // this app, purely due to volume). Inherits this group's 'v1' prefix
+        // and 'auth:sanctum' middleware since it's require()'d from inside it.
+        require __DIR__.'/chat.php';
 
         // Notifications (generic — not Cctv-specific; camera-offline alerts are
         // just today's only producer of the shared Laravel notifications table)

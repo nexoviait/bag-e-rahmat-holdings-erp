@@ -17,8 +17,13 @@ class MaterialTransaction extends Model
         'quantity',
         'unit_price',
         'total_cost',
+        'transportation_cost',
+        'carrying_cost',
         'supplier',
         'used_for',
+        'receipt_path',
+        'receipt_name',
+        'receipt_mime',
         'created_by',
     ];
 
@@ -27,6 +32,8 @@ class MaterialTransaction extends Model
         'quantity' => 'float',
         'unit_price' => 'float',
         'total_cost' => 'float',
+        'transportation_cost' => 'float',
+        'carrying_cost' => 'float',
     ];
 
     public function project()

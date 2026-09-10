@@ -25,6 +25,8 @@ import { roleLabels } from "@/lib/format";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { AlertsBell } from "@/components/cctv/AlertsBell";
+import { ChatIncomingListener } from "@/components/chat/ChatIncomingListener";
+import { CallManager } from "@/components/chat/CallManager";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useSession();
@@ -83,7 +85,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   ];
 
   return (
+    <CallManager>
     <div className="flex min-h-screen bg-background text-foreground">
+      <ChatIncomingListener />
+
       {/* Desktop Sidebar */}
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex print:hidden">
         <Link to="/dashboard" className="flex items-center px-6 py-6 min-h-[72px]">
@@ -355,6 +360,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <ProfileDialog user={user} onClose={() => setOpenProfile(false)} />
       )}
     </div>
+    </CallManager>
   );
 }
 

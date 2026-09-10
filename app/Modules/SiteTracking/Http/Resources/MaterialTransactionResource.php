@@ -20,8 +20,13 @@ class MaterialTransactionResource extends JsonResource
             'quantity' => $this->quantity !== null ? (float) $this->quantity : null,
             'unit_price' => $this->unit_price !== null ? (float) $this->unit_price : null,
             'total_cost' => $this->total_cost !== null ? (float) $this->total_cost : null,
+            'transportation_cost' => $this->transportation_cost !== null ? (float) $this->transportation_cost : null,
+            'carrying_cost' => $this->carrying_cost !== null ? (float) $this->carrying_cost : null,
             'supplier' => $this->supplier,
             'used_for' => $this->used_for,
+            'receipt_path' => $this->receipt_path,
+            'receipt_name' => $this->receipt_name,
+            'receipt_mime' => $this->receipt_mime,
             'created_at' => $this->created_at,
         ];
     }

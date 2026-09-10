@@ -395,7 +395,9 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
                 {filteredMaterialRows.map((r: any) => {
                   const tag = r.type === "in" && r.supplier ? `Supplier: ${r.supplier}` : null;
                   const workItem = r.used_for ? `Work item: ${r.used_for}` : null;
-                  const detail = [tag, workItem].filter(Boolean).join(" · ");
+                  const transport = r.transportation_cost != null ? `Transport: ${fmtBDT(r.transportation_cost)}` : null;
+                  const carrying = r.carrying_cost != null ? `Carrying: ${fmtBDT(r.carrying_cost)}` : null;
+                  const detail = [tag, workItem, transport, carrying].filter(Boolean).join(" · ");
                   const qtyLabel = r.quantity != null ? `${r.quantity} ${r.unit} of ` : "";
                   return (
                     <div key={r.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-surface-2 px-3 py-2">
@@ -415,6 +417,15 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
                         {detail && <span className="ml-2 text-xs text-muted-foreground">({detail})</span>}
                       </div>
                       <div className="flex shrink-0 items-center gap-3">
+                        {r.receipt_path && (
+                          <button
+                            onClick={() => receiptPreview.open(`/material-transactions/${r.id}/receipt`)}
+                            title="View receipt"
+                            className="text-muted-foreground hover:text-gold cursor-pointer"
+                          >
+                            <Paperclip className="h-4 w-4" />
+                          </button>
+                        )}
                         {r.total_cost != null && <span className="font-medium">{fmtBDT(r.total_cost)}</span>}
                         {canEditMaterials && (
                           <button
@@ -621,7 +632,11 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-background/70 p-4 backdrop-blur">
-      <div className="noir-panel w-full max-w-md p-6">
+      {/* max-h + overflow-y-auto — the material-transaction form (quantity,
+          rate, amount, transport, carrying, supplier, work item, receipt)
+          is tall enough on a normal-height screen that its own Save button
+          can end up clipped below the fold with no way to scroll to it. */}
+      <div className="noir-panel flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto p-6">
         <div className="flex items-center justify-between">
           <h3 className="font-display text-xl font-semibold">{title}</h3>
           <button onClick={onClose} className="rounded-md p-1 hover:bg-accent cursor-pointer">
@@ -723,8 +738,16 @@ function AddTransactionModal({
   const [unitPrice, setUnitPrice] = useState(initialData?.unit_price != null ? String(initialData.unit_price) : "");
   const [amount, setAmount] = useState(initialData?.total_cost != null ? String(initialData.total_cost) : "");
   const [amountTouched, setAmountTouched] = useState(isEditing);
+  const [transportationCost, setTransportationCost] = useState(
+    initialData?.transportation_cost != null ? String(initialData.transportation_cost) : ""
+  );
+  const [carryingCost, setCarryingCost] = useState(
+    initialData?.carrying_cost != null ? String(initialData.carrying_cost) : ""
+  );
   const [supplier, setSupplier] = useState(initialData?.supplier ?? "");
   const [usedFor, setUsedFor] = useState(initialData?.used_for ?? "");
+  const [receipt, setReceipt] = useState<File | null>(null);
+  const receiptPreview = useReceiptPreview();
 
   // Convenience only — quantity×rate fills the Amount field, but the user's
   // own real purchase log shows the recorded amount doesn't always match that
@@ -746,7 +769,7 @@ function AddTransactionModal({
         const res = await api.post("/materials", { project_id: projectId, name: newName, unit: newUnit });
         id = res.data.id;
       }
-      const payload = {
+      const payload: Record<string, any> = {
         project_id: projectId,
         material_id: id,
         type,
@@ -754,11 +777,29 @@ function AddTransactionModal({
         quantity: quantity || null,
         unit_price: type === "in" ? unitPrice || null : null,
         total_cost: displayAmount || null,
+        transportation_cost: type === "in" ? transportationCost || null : null,
+        carrying_cost: type === "in" ? carryingCost || null : null,
         supplier: type === "in" ? supplier || null : null,
         used_for: usedFor || null,
       };
-      if (isEditing) return api.put(`/material-transactions/${initialData.id}`, payload);
-      return api.post("/material-transactions", payload);
+
+      const url = isEditing ? `/material-transactions/${initialData.id}` : "/material-transactions";
+
+      if (!receipt) {
+        if (isEditing) return api.put(url, payload);
+        return api.post(url, payload);
+      }
+
+      // A file forces multipart — the shared `api` instance defaults to
+      // Content-Type: application/json, which would otherwise JSON-stringify
+      // the FormData body and silently drop the actual file. PUT-with-multipart
+      // is unreliable across browsers/proxies, so an edit goes through POST
+      // with a `_method` override instead, same as FinancialModule.tsx.
+      const formData = new FormData();
+      Object.entries(payload).forEach(([k, v]) => formData.append(k, v ?? ""));
+      formData.append("receipt", receipt);
+      if (isEditing) formData.append("_method", "PUT");
+      return api.post(url, formData, { headers: { "Content-Type": "multipart/form-data" } });
     },
     onSuccess: () => {
       toast.success(isEditing ? "Transaction updated" : "Transaction recorded");
@@ -854,6 +895,33 @@ function AddTransactionModal({
         </Field>
 
         {type === "in" && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Transportation cost (optional)">
+              <input
+                type="number"
+                step="any"
+                min="0"
+                className={inputCls}
+                value={transportationCost}
+                onChange={(e) => setTransportationCost(e.target.value)}
+                placeholder="Delivery / vehicle charge"
+              />
+            </Field>
+            <Field label="Carrying cost (optional)">
+              <input
+                type="number"
+                step="any"
+                min="0"
+                className={inputCls}
+                value={carryingCost}
+                onChange={(e) => setCarryingCost(e.target.value)}
+                placeholder="Labor to carry it in"
+              />
+            </Field>
+          </div>
+        )}
+
+        {type === "in" && (
           <Field label="Supplier (optional)">
             <input className={inputCls} value={supplier} onChange={(e) => setSupplier(e.target.value)} />
           </Field>
@@ -862,10 +930,39 @@ function AddTransactionModal({
           <input className={inputCls} value={usedFor} onChange={(e) => setUsedFor(e.target.value)} placeholder='e.g. "Mat CC", 3rd floor slab' />
         </Field>
 
+        <Field label="Receipt (optional — JPG, PNG or PDF)">
+          <input
+            type="file"
+            accept="image/jpeg,image/png,application/pdf"
+            onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+            className={`${inputCls} file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-foreground`}
+          />
+          {initialData?.receipt_path && (
+            <button
+              type="button"
+              onClick={() => receiptPreview.open(`/material-transactions/${initialData.id}/receipt`)}
+              className="mt-1.5 flex items-center gap-1 text-xs font-medium text-gold hover:underline cursor-pointer"
+            >
+              <Paperclip className="h-3 w-3" /> View current receipt
+            </button>
+          )}
+          {initialData?.receipt_path && (
+            <p className="mt-1 text-[11px] text-muted-foreground">Choosing a new file replaces the current receipt.</p>
+          )}
+        </Field>
+
         <button disabled={save.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2.5 font-medium text-primary-foreground hover:opacity-95 disabled:opacity-60 cursor-pointer">
           {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {isEditing ? "Update transaction" : "Save"}
         </button>
       </form>
+
+      {receiptPreview.preview && (
+        <ReceiptPreviewModal
+          url={receiptPreview.preview.url}
+          mime={receiptPreview.preview.mime}
+          onClose={receiptPreview.close}
+        />
+      )}
     </ModalShell>
   );
 }

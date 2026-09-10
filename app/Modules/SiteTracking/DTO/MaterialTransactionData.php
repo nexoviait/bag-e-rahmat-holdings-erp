@@ -14,8 +14,13 @@ final readonly class MaterialTransactionData
         public ?float $quantity,
         public ?float $unitPrice,
         public ?float $totalCost,
+        public ?float $transportationCost,
+        public ?float $carryingCost,
         public ?string $supplier,
         public ?string $usedFor,
+        public ?string $receiptPath = null,
+        public ?string $receiptName = null,
+        public ?string $receiptMime = null,
     ) {}
 
     /**
@@ -43,6 +48,17 @@ final readonly class MaterialTransactionData
             default => null,
         };
 
+        // Transport/carrying are their own real costs on a purchase — kept as
+        // separate columns rather than folded into total_cost so reports can
+        // break "materials vs. transport vs. carrying" apart. Not meaningful
+        // for a plain usage (OUT) row, same reasoning as supplier below.
+        $transportationCost = $type === MaterialTransaction::TYPE_IN && isset($data['transportation_cost']) && $data['transportation_cost'] !== ''
+            ? round((float) $data['transportation_cost'], 2)
+            : null;
+        $carryingCost = $type === MaterialTransaction::TYPE_IN && isset($data['carrying_cost']) && $data['carrying_cost'] !== ''
+            ? round((float) $data['carrying_cost'], 2)
+            : null;
+
         return new self(
             projectId: (int) $data['project_id'],
             materialId: (int) $data['material_id'],
@@ -51,6 +67,8 @@ final readonly class MaterialTransactionData
             quantity: $quantity,
             unitPrice: $type === MaterialTransaction::TYPE_IN ? $unitPrice : null,
             totalCost: $totalCost,
+            transportationCost: $transportationCost,
+            carryingCost: $carryingCost,
             supplier: $type === MaterialTransaction::TYPE_IN ? ($data['supplier'] ?? null) : null,
             // Unlike supplier, the work-item tag applies to a purchase as much
             // as to a usage — the user's sheet tags every purchase row with
@@ -59,9 +77,30 @@ final readonly class MaterialTransactionData
         );
     }
 
+    /** Applied after fromArray() once an uploaded receipt file has actually been stored — see handleReceiptUpload(). */
+    public function withReceipt(array $attrs): self
+    {
+        return new self(
+            projectId: $this->projectId,
+            materialId: $this->materialId,
+            type: $this->type,
+            date: $this->date,
+            quantity: $this->quantity,
+            unitPrice: $this->unitPrice,
+            totalCost: $this->totalCost,
+            transportationCost: $this->transportationCost,
+            carryingCost: $this->carryingCost,
+            supplier: $this->supplier,
+            usedFor: $this->usedFor,
+            receiptPath: $attrs['receipt_path'],
+            receiptName: $attrs['receipt_name'],
+            receiptMime: $attrs['receipt_mime'],
+        );
+    }
+
     public function toModelAttributes(): array
     {
-        return [
+        $attributes = [
             'project_id' => $this->projectId,
             'material_id' => $this->materialId,
             'type' => $this->type,
@@ -69,8 +108,21 @@ final readonly class MaterialTransactionData
             'quantity' => $this->quantity,
             'unit_price' => $this->unitPrice,
             'total_cost' => $this->totalCost,
+            'transportation_cost' => $this->transportationCost,
+            'carrying_cost' => $this->carryingCost,
             'supplier' => $this->supplier,
             'used_for' => $this->usedFor,
         ];
+
+        // Only present (and only overwritten) when a new receipt was actually
+        // uploaded this request — see MaterialTransactionController::update(),
+        // which otherwise leaves an existing receipt untouched.
+        if ($this->receiptPath !== null) {
+            $attributes['receipt_path'] = $this->receiptPath;
+            $attributes['receipt_name'] = $this->receiptName;
+            $attributes['receipt_mime'] = $this->receiptMime;
+        }
+
+        return $attributes;
     }
 }

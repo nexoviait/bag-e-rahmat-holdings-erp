@@ -18,6 +18,9 @@ import { RolesPage } from "@/pages/admin/RolesPage";
 import { SettingsPage } from "@/pages/admin/SettingsPage";
 import { ActivityLogsPage } from "@/pages/admin/ActivityLogsPage";
 import { MonitoringPage } from "@/pages/MonitoringPage";
+import { initEcho } from "@/lib/echo";
+
+initEcho();
 
 const queryClient = new QueryClient({
   // Without this, a failed useQuery (network down, 500, etc.) just leaves

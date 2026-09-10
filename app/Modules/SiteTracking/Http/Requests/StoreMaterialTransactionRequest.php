@@ -25,8 +25,11 @@ class StoreMaterialTransactionRequest extends FormRequest
             'quantity' => ['nullable', 'numeric', 'gt:0'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
             'total_cost' => ['nullable', 'numeric', 'min:0'],
+            'transportation_cost' => ['nullable', 'numeric', 'min:0'],
+            'carrying_cost' => ['nullable', 'numeric', 'min:0'],
             'supplier' => ['nullable', 'string', 'max:150'],
             'used_for' => ['nullable', 'string', 'max:255'],
+            'receipt' => ['nullable', 'file', 'max:10240'],
         ];
     }
 

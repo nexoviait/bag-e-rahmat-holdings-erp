@@ -15,6 +15,7 @@ import { ReportsTab } from "./project-tabs/ReportsTab";
 import { DocumentsTab } from "./project-tabs/DocumentsTab";
 import { CctvTab } from "./project-tabs/CctvTab";
 import { DailyLogTab } from "./project-tabs/DailyLogTab";
+import { ChatTab } from "./project-tabs/ChatTab";
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -64,6 +65,7 @@ export function ProjectDetailPage() {
     { path: "/revenue", label: "Revenue" },
     { path: "/expenses", label: "Expenses" },
     { path: "/daily-log", label: "Daily Log" },
+    { path: "/chat", label: "Chat" },
     { path: "/shareholders", label: "Shareholders" },
     { path: "/payments", label: "Owner Payments" },
     { path: "/documents", label: "Documents" },
@@ -96,6 +98,8 @@ export function ProjectDetailPage() {
         return <FinancialTab projectId={projectId!} kind="expenses" />;
       case "/daily-log":
         return <DailyLogTab projectId={projectId!} />;
+      case "/chat":
+        return <ChatTab projectId={projectId!} />;
       case "/payments":
         return <FinancialTab projectId={projectId!} kind="payments" />;
       case "/shareholders":

@@ -37,6 +37,7 @@ class DatabaseSeeder extends Seeder
             'cctv.logs.view', 'cctv.assign', 'cctv.playback.view',
             'materials.view', 'materials.create', 'materials.edit', 'materials.delete',
             'labor.view', 'labor.create', 'labor.edit', 'labor.delete',
+            'chat.view', 'chat.send', 'chat.groups.create', 'chat.calls.initiate',
         ];
 
         foreach ($permissions as $p) {
@@ -53,6 +54,7 @@ class DatabaseSeeder extends Seeder
             'admin' => $permissions,
             'manager' => [
                 'cctv.view', 'cctv.devices.view', 'cctv.snapshot', 'cctv.logs.view',
+                'chat.view', 'chat.send', 'chat.groups.create', 'chat.calls.initiate',
             ],
             'user' => [
                 'projects.view', 'projects.create', 'projects.edit',
@@ -62,6 +64,7 @@ class DatabaseSeeder extends Seeder
                 'cctv.view', 'cctv.snapshot',
                 'materials.view', 'materials.create', 'materials.edit', 'materials.delete',
                 'labor.view', 'labor.create', 'labor.edit', 'labor.delete',
+                'chat.view', 'chat.send', 'chat.groups.create', 'chat.calls.initiate',
             ],
         ];
 
