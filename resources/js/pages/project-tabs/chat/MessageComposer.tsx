@@ -2,13 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { FileText, Loader2, Mic, Paperclip, Send, Square, X } from "lucide-react";
 import { toast } from "sonner";
 import { fmtFileSize } from "@/lib/format";
+import { validateFile } from "@/lib/fileValidation";
 
-// Matches ChatAttachmentRules server-side — these are only UX affordances
-// (narrow the file picker, fail fast with a friendly message instead of
-// uploading 50MB just to have the server reject it); the real enforcement
-// is always server-side.
+// Matches ChatAttachmentRules server-side (allExtensions()) — these are only
+// UX affordances (narrow the file picker, fail fast with a friendly message
+// instead of uploading up to 50MB just to have the server reject it); the
+// real enforcement is always server-side.
 const ATTACHMENT_ACCEPT =
   "image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.csv";
+const CHAT_ATTACHMENT_EXTENSIONS = [
+  "jpg", "jpeg", "png", "gif", "webp", // image
+  "mp4", "mov", "webm", // video
+  "ogg", "mp3", "m4a", "wav", // voice note (webm already covered above)
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "zip", "csv", // file
+];
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
 const MIC_MIME_CANDIDATES = ["audio/webm", "audio/mp4", "audio/ogg"];
@@ -63,8 +70,9 @@ export function MessageComposer({
     const file = e.target.files?.[0];
     e.target.value = ""; // allow picking the same file twice in a row
     if (!file) return;
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      toast.error("File is too large — the limit is 50MB.");
+    const error = validateFile(file, { extensions: CHAT_ATTACHMENT_EXTENSIONS, maxBytes: MAX_ATTACHMENT_BYTES });
+    if (error) {
+      toast.error(error);
       return;
     }
 

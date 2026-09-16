@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { Loader2, Phone, PhoneOff, Video } from "lucide-react";
 import { Avatar } from "@/pages/project-tabs/chat/Avatar";
 import { Call } from "@/pages/project-tabs/chat/types";
+import { startRingtone } from "@/lib/sound";
 
 export function IncomingCallModal({
   call,
@@ -15,6 +17,13 @@ export function IncomingCallModal({
 }) {
   const callerName = call.initiator?.name ?? "Someone";
   const isVideo = call.type === "video";
+
+  // This modal is only ever rendered while CallManager considers the call
+  // "ringing incoming" — mount/unmount is exactly the ring's start/stop.
+  useEffect(() => {
+    const { stop } = startRingtone();
+    return stop;
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[100] grid place-items-center bg-background/90 p-4 backdrop-blur-sm">

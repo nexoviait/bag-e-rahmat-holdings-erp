@@ -1,13 +1,25 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { StatCard } from "@/components/StatCard";
 import { DatePicker } from "@/components/DatePicker";
 import { fmtBDT } from "@/lib/format";
 import { useHasPermission } from "@/lib/session";
-import { Loader2, Plus, X, AlertTriangle, Trash2, Package, Search, Paperclip, Edit2 } from "lucide-react";
+import { Loader2, Plus, X, AlertTriangle, AlertCircle, Trash2, Package, Search, Paperclip, Edit2 } from "lucide-react";
 import { useReceiptPreview, ReceiptPreviewModal } from "@/components/ReceiptViewer";
+import { pickValidatedFile } from "@/lib/fileValidation";
 import { toast } from "sonner";
+
+// Mirrors every receipt/attachment upload rule on this tab — all four
+// (material attachment, material transaction receipt, and the quick-add
+// Expense/Revenue receipt) go through MaterialController, MaterialTransactionController
+// or FinancialController, which all validate 'jpg'/'jpeg'/'png'/'pdf' up to 10MB (max:10240).
+const RECEIPT_LIKE_RULES = { extensions: ["jpg", "jpeg", "png", "pdf"], maxBytes: 10 * 1024 * 1024 };
+
+// Same shape as Laravel's own validation error bag ({field: [messages]}) so
+// a backend 422 response can be dropped straight into this state — see
+// DocumentsTab.tsx, which established this pattern first.
+type FieldErrors = Record<string, string[]>;
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -16,13 +28,24 @@ function todayStr() {
 const inputCls =
   "w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-gold focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--gold)_20%,transparent)]";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+// Every modal on this tab validates on submit and shows the result here,
+// under the field, instead of relying on the browser's native `required`
+// popup — those can't be styled, don't match the app's dark theme, and (per
+// SelectWithCustom below) were previously firing even for fields the backend
+// doesn't actually require.
+function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
       {children}
+      {error && (
+        <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-destructive">
+          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
     </label>
   );
 }
@@ -52,17 +75,24 @@ const LABOR_TYPES = [
 ];
 
 /** A dropdown of standard options with a "+ Add custom" escape hatch — used
- * for Unit, Expense Category and Revenue Source alike. */
+ * for Unit, Labor Type, Expense Category and Revenue Source alike. Never
+ * uses the native HTML `required` attribute — that fired its own unstyled
+ * browser popup even for Category/Source, which are actually nullable on
+ * FinancialController's own validation. Whether a caller's field is really
+ * required is entirely up to that caller's own `validate()`, surfaced here
+ * via the optional `error` prop instead. */
 function SelectWithCustom({
   label,
   value,
   onChange,
   options,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: string[];
+  error?: string;
 }) {
   const [custom, setCustom] = useState(value !== "" && !options.includes(value));
 
@@ -82,10 +112,9 @@ function SelectWithCustom({
         </button>
       </div>
       {custom ? (
-        <input required className={inputCls} value={value} onChange={(e) => onChange(e.target.value)} placeholder={`Type a ${label.toLowerCase()}`} />
+        <input className={inputCls} value={value} onChange={(e) => onChange(e.target.value)} placeholder={`Type a ${label.toLowerCase()}`} />
       ) : (
         <select
-          required
           className={inputCls}
           value={value}
           onChange={(e) => {
@@ -105,6 +134,12 @@ function SelectWithCustom({
           ))}
           <option value="__custom__">➕ Add custom...</option>
         </select>
+      )}
+      {error && (
+        <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-destructive">
+          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
       )}
     </div>
   );
@@ -352,6 +387,16 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
                         {(canEditMaterials || canDeleteMaterials) && (
                           <td className="px-5 py-3 text-right">
                             <div className="flex items-center justify-end gap-1">
+                              {m.attachment_path && (
+                                <button
+                                  onClick={() => receiptPreview.open(`/materials/${m.id}/attachment`)}
+                                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-gold cursor-pointer"
+                                  aria-label="View material attachment"
+                                  title="View attachment"
+                                >
+                                  <Paperclip className="h-4 w-4" />
+                                </button>
+                              )}
                               {canEditMaterials && (
                                 <button
                                   onClick={() => {
@@ -563,6 +608,20 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
             setEditingMaterial(null);
           }}
           onSaved={invalidateAll}
+          onDelete={
+            canDeleteMaterials && editingMaterial
+              ? () => {
+                  if (!confirm(`Delete "${editingMaterial.name}"? This also removes its In/Out history.`)) return;
+                  deleteMaterial.mutate(editingMaterial.id, {
+                    onSuccess: () => {
+                      setActiveDialog(null);
+                      setEditingMaterial(null);
+                    },
+                  });
+                }
+              : undefined
+          }
+          deleting={deleteMaterial.isPending}
         />
       )}
       {activeDialog === "transaction" && (
@@ -654,61 +713,159 @@ function AddMaterialModal({
   initialData,
   onClose,
   onSaved,
+  onDelete,
+  deleting,
 }: {
   projectId: string;
   initialData?: any | null;
   onClose: () => void;
   onSaved: () => void;
+  onDelete?: () => void;
+  deleting?: boolean;
 }) {
   const isEditing = !!initialData;
   const [name, setName] = useState(initialData?.name ?? "");
   const [unit, setUnit] = useState(initialData?.unit ?? "");
   const [reorderLevel, setReorderLevel] = useState(initialData?.reorder_level != null ? String(initialData.reorder_level) : "");
   const [notes, setNotes] = useState(initialData?.notes ?? "");
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const attachmentPreview = useReceiptPreview();
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  function validate(): FieldErrors {
+    const errors: FieldErrors = {};
+    if (!name.trim()) errors.name = ["Material name is required."];
+    if (!unit) errors.unit = ["Please select or enter a unit."];
+    return errors;
+  }
 
   const save = useMutation({
     mutationFn: async () => {
-      const payload = {
+      const payload: Record<string, any> = {
         project_id: projectId,
         name,
         unit,
         reorder_level: reorderLevel || null,
         notes: notes || null,
       };
-      if (isEditing) return api.put(`/materials/${initialData.id}`, payload);
-      return api.post("/materials", payload);
+      const url = isEditing ? `/materials/${initialData.id}` : "/materials";
+
+      if (!attachment) {
+        if (isEditing) return api.put(url, payload);
+        return api.post(url, payload);
+      }
+
+      // A file forces multipart — same PUT-with-`_method`-override pattern as
+      // AddTransactionModal, since the shared `api` instance's default
+      // Content-Type would otherwise JSON-stringify the FormData body.
+      const formData = new FormData();
+      Object.entries(payload).forEach(([k, v]) => formData.append(k, v ?? ""));
+      formData.append("attachment", attachment);
+      if (isEditing) formData.append("_method", "PUT");
+      return api.post(url, formData, { headers: { "Content-Type": "multipart/form-data" } });
     },
     onSuccess: () => {
       toast.success(isEditing ? "Material updated" : "Material added");
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.response?.data?.message || e.message),
+    onError: (e: any) => {
+      const errors = e.response?.data?.errors as FieldErrors | undefined;
+      if (errors) setFieldErrors(errors);
+      toast.error(e.response?.data?.message || e.message);
+    },
   });
 
   return (
     <ModalShell title={isEditing ? "Edit material" : "Add material"} onClose={onClose}>
       <form
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
+          const errors = validate();
+          if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors);
+            return;
+          }
+          setFieldErrors({});
           save.mutate();
         }}
         className="mt-5 space-y-4"
       >
-        <Field label="Material name">
-          <input required className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Cement (OPC 52.5)" />
+        <Field label="Material name" error={fieldErrors.name?.[0]}>
+          <input
+            className={inputCls}
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (fieldErrors.name) setFieldErrors((p) => ({ ...p, name: undefined }));
+            }}
+            placeholder="e.g. Cement (OPC 52.5)"
+          />
         </Field>
-        <SelectWithCustom label="Unit" value={unit} onChange={setUnit} options={UNIT_OPTIONS} />
+        <SelectWithCustom
+          label="Unit"
+          value={unit}
+          onChange={(v) => {
+            setUnit(v);
+            if (fieldErrors.unit) setFieldErrors((p) => ({ ...p, unit: undefined }));
+          }}
+          options={UNIT_OPTIONS}
+          error={fieldErrors.unit?.[0]}
+        />
         <Field label="Reorder level (optional)">
           <input type="number" step="any" min="0" className={inputCls} value={reorderLevel} onChange={(e) => setReorderLevel(e.target.value)} placeholder="Alert when stock falls below this" />
         </Field>
         <Field label="Notes (optional)">
           <textarea className={`${inputCls} min-h-[60px]`} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
+        <Field label="Attachment (optional — JPG, PNG or PDF)">
+          <input
+            type="file"
+            accept="image/jpeg,image/png,application/pdf"
+            onChange={(e) => setAttachment(pickValidatedFile(e.target, RECEIPT_LIKE_RULES))}
+            className={`${inputCls} file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-foreground`}
+          />
+          {initialData?.attachment_path && (
+            <button
+              type="button"
+              onClick={() => attachmentPreview.open(`/materials/${initialData.id}/attachment`)}
+              className="mt-1.5 flex items-center gap-1 text-xs font-medium text-gold hover:underline cursor-pointer"
+            >
+              <Paperclip className="h-3 w-3" /> View current attachment
+            </button>
+          )}
+          {initialData?.attachment_path && (
+            <p className="mt-1 text-[11px] text-muted-foreground">Choosing a new file replaces the current attachment.</p>
+          )}
+        </Field>
         <button disabled={save.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2.5 font-medium text-primary-foreground hover:opacity-95 disabled:opacity-60 cursor-pointer">
           {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {isEditing ? "Update material" : "Add material"}
         </button>
+        {/* Same size/shape as the Update button above (just the app's
+            standard destructive treatment) so delete reads as an equally
+            real, equally tappable action instead of the small icon-only
+            trash button in the list behind this modal — easy to miss and
+            hard to hit precisely on a phone. */}
+        {isEditing && onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={deleting}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-destructive/40 py-2.5 font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-60 cursor-pointer"
+          >
+            {deleting && <Loader2 className="h-4 w-4 animate-spin" />} Delete material
+          </button>
+        )}
       </form>
+
+      {attachmentPreview.preview && (
+        <ReceiptPreviewModal
+          url={attachmentPreview.preview.url}
+          mime={attachmentPreview.preview.mime}
+          onClose={attachmentPreview.close}
+        />
+      )}
     </ModalShell>
   );
 }
@@ -748,6 +905,19 @@ function AddTransactionModal({
   const [usedFor, setUsedFor] = useState(initialData?.used_for ?? "");
   const [receipt, setReceipt] = useState<File | null>(null);
   const receiptPreview = useReceiptPreview();
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  // Caches the id of a material created via the "new item" branch below so a
+  // retry (after this step succeeds but the transaction step that follows it
+  // fails for some unrelated reason) reuses it instead of POSTing /materials
+  // a second time with the same name — which used to hit the table's
+  // unique(project_id, name) constraint and surface as a raw, confusing
+  // "Failed to create material." Resets if the user actually changes what
+  // they're naming, since that's genuinely a different item.
+  const createdMaterialIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    createdMaterialIdRef.current = null;
+  }, [newName, newUnit]);
 
   // Convenience only — quantity×rate fills the Amount field, but the user's
   // own real purchase log shows the recorded amount doesn't always match that
@@ -762,12 +932,41 @@ function AddTransactionModal({
   }
   const displayAmount = amountTouched ? amount : amount || suggestedAmount();
 
+  function validate(): FieldErrors {
+    const errors: FieldErrors = {};
+    if (isNewMaterial) {
+      if (!newName.trim()) errors.newName = ["Item name is required."];
+      if (!newUnit) errors.newUnit = ["Please select or enter a unit."];
+    } else if (!materialId) {
+      errors.materialId = ["Please select an item."];
+    }
+
+    // Mirrors StoreMaterialTransactionRequest's own cross-field rule exactly
+    // — a quantity, an amount, or both satisfy it. Previously this form
+    // instead forced Amount via a native `required` attribute whenever type
+    // was "in", which was stricter than the backend actually requires (a
+    // quantity-only IN row is perfectly valid) and showed as an unstyled
+    // browser popup rather than this inline message.
+    const hasAmount = !!displayAmount;
+    const hasQtyAndRate = !!quantity && !!unitPrice;
+    const hasQtyOnly = !!quantity;
+    if (!hasAmount && !hasQtyAndRate && !hasQtyOnly) {
+      errors.quantity = ["Enter a quantity, an amount, or both."];
+    }
+    return errors;
+  }
+
   const save = useMutation({
     mutationFn: async () => {
       let id = materialId;
       if (isNewMaterial) {
-        const res = await api.post("/materials", { project_id: projectId, name: newName, unit: newUnit });
-        id = res.data.id;
+        if (createdMaterialIdRef.current) {
+          id = createdMaterialIdRef.current;
+        } else {
+          const res = await api.post("/materials", { project_id: projectId, name: newName, unit: newUnit });
+          id = res.data.id;
+          createdMaterialIdRef.current = id;
+        }
       }
       const payload: Record<string, any> = {
         project_id: projectId,
@@ -806,28 +1005,63 @@ function AddTransactionModal({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.response?.data?.message || e.message),
+    onError: (e: any) => {
+      const errors = e.response?.data?.errors as FieldErrors | undefined;
+      if (errors) setFieldErrors(errors);
+      toast.error(e.response?.data?.message || e.message);
+    },
   });
 
   return (
     <ModalShell title={isEditing ? "Edit material transaction" : "Record material purchase / usage"} onClose={onClose}>
       <form
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
+          const errors = validate();
+          if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors);
+            return;
+          }
+          setFieldErrors({});
           save.mutate();
         }}
         className="mt-5 space-y-4"
       >
         {isNewMaterial ? (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="New item name">
-              <input required className={inputCls} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder='e.g. Poli (20 goj)' />
+            <Field label="New item name" error={fieldErrors.newName?.[0]}>
+              <input
+                className={inputCls}
+                value={newName}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  if (fieldErrors.newName) setFieldErrors((p) => ({ ...p, newName: undefined }));
+                }}
+                placeholder='e.g. Poli (20 goj)'
+              />
             </Field>
-            <SelectWithCustom label="Unit" value={newUnit} onChange={setNewUnit} options={UNIT_OPTIONS} />
+            <SelectWithCustom
+              label="Unit"
+              value={newUnit}
+              onChange={(v) => {
+                setNewUnit(v);
+                if (fieldErrors.newUnit) setFieldErrors((p) => ({ ...p, newUnit: undefined }));
+              }}
+              options={UNIT_OPTIONS}
+              error={fieldErrors.newUnit?.[0]}
+            />
           </div>
         ) : (
-          <Field label="Item">
-            <select required className={inputCls} value={materialId} onChange={(e) => setMaterialId(e.target.value)}>
+          <Field label="Item" error={fieldErrors.materialId?.[0]}>
+            <select
+              className={inputCls}
+              value={materialId}
+              onChange={(e) => {
+                setMaterialId(e.target.value);
+                if (fieldErrors.materialId) setFieldErrors((p) => ({ ...p, materialId: undefined }));
+              }}
+            >
               {materials.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name} ({m.unit})
@@ -868,8 +1102,19 @@ function AddTransactionModal({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Quantity (optional)">
-            <input type="number" step="any" min="0" className={inputCls} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Leave blank if N/A" />
+          <Field label="Quantity (optional)" error={fieldErrors.quantity?.[0]}>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              className={inputCls}
+              value={quantity}
+              onChange={(e) => {
+                setQuantity(e.target.value);
+                if (fieldErrors.quantity) setFieldErrors((p) => ({ ...p, quantity: undefined }));
+              }}
+              placeholder="Leave blank if N/A"
+            />
           </Field>
           {type === "in" && (
             <Field label="Rate / unit (optional)">
@@ -878,9 +1123,8 @@ function AddTransactionModal({
           )}
         </div>
 
-        <Field label={type === "in" ? "Amount (BDT)" : "Amount (BDT, optional)"}>
+        <Field label="Amount (BDT, optional if quantity is given)">
           <input
-            required={type === "in"}
             type="number"
             step="any"
             min="0"
@@ -889,6 +1133,7 @@ function AddTransactionModal({
             onChange={(e) => {
               setAmount(e.target.value);
               setAmountTouched(true);
+              if (fieldErrors.quantity) setFieldErrors((p) => ({ ...p, quantity: undefined }));
             }}
             placeholder="Total amount for this row"
           />
@@ -934,7 +1179,7 @@ function AddTransactionModal({
           <input
             type="file"
             accept="image/jpeg,image/png,application/pdf"
-            onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+            onChange={(e) => setReceipt(pickValidatedFile(e.target, RECEIPT_LIKE_RULES))}
             className={`${inputCls} file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-foreground`}
           />
           {initialData?.receipt_path && (
@@ -985,8 +1230,16 @@ function AddLaborModal({
   const [headcount, setHeadcount] = useState(initialData?.headcount != null ? String(initialData.headcount) : "");
   const [wageRate, setWageRate] = useState(initialData?.wage_rate != null ? String(initialData.wage_rate) : "");
   const [notes, setNotes] = useState(initialData?.notes ?? "");
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const autoTotal = (Number(headcount) || 0) * (Number(wageRate) || 0);
+
+  function validate(): FieldErrors {
+    const errors: FieldErrors = {};
+    if (!laborType) errors.laborType = ["Please select or enter a labor type."];
+    if (!headcount || Number(headcount) < 1) errors.headcount = ["Headcount must be at least 1."];
+    return errors;
+  }
 
   const save = useMutation({
     mutationFn: async () => {
@@ -1006,22 +1259,51 @@ function AddLaborModal({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.response?.data?.message || e.message),
+    onError: (e: any) => {
+      const errors = e.response?.data?.errors as FieldErrors | undefined;
+      if (errors) setFieldErrors(errors);
+      toast.error(e.response?.data?.message || e.message);
+    },
   });
 
   return (
     <ModalShell title={isEditing ? "Edit labor entry" : "Log daily labor"} onClose={onClose}>
       <form
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
+          const errors = validate();
+          if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors);
+            return;
+          }
+          setFieldErrors({});
           save.mutate();
         }}
         className="mt-5 space-y-4"
       >
-        <SelectWithCustom label="Labor type" value={laborType} onChange={setLaborType} options={LABOR_TYPES} />
+        <SelectWithCustom
+          label="Labor type"
+          value={laborType}
+          onChange={(v) => {
+            setLaborType(v);
+            if (fieldErrors.laborType) setFieldErrors((p) => ({ ...p, laborType: undefined }));
+          }}
+          options={LABOR_TYPES}
+          error={fieldErrors.laborType?.[0]}
+        />
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Headcount">
-            <input required type="number" min="1" className={inputCls} value={headcount} onChange={(e) => setHeadcount(e.target.value)} />
+          <Field label="Headcount" error={fieldErrors.headcount?.[0]}>
+            <input
+              type="number"
+              min="1"
+              className={inputCls}
+              value={headcount}
+              onChange={(e) => {
+                setHeadcount(e.target.value);
+                if (fieldErrors.headcount) setFieldErrors((p) => ({ ...p, headcount: undefined }));
+              }}
+            />
           </Field>
           <Field label="Wage rate / person (BDT)">
             <input type="number" step="any" min="0" className={inputCls} value={wageRate} onChange={(e) => setWageRate(e.target.value)} />
@@ -1060,6 +1342,16 @@ function AddFinancialModal({
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [receipt, setReceipt] = useState<File | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  // Category/Source are intentionally not required here — FinancialController's
+  // own validation has them as nullable, so this quick-add form shouldn't be
+  // stricter than the tab it feeds into.
+  function validate(): FieldErrors {
+    const errors: FieldErrors = {};
+    if (!amount) errors.amount = ["Amount is required."];
+    return errors;
+  }
 
   const save = useMutation({
     mutationFn: async () => {
@@ -1088,14 +1380,25 @@ function AddFinancialModal({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.response?.data?.message || e.message),
+    onError: (e: any) => {
+      const errors = e.response?.data?.errors as FieldErrors | undefined;
+      if (errors) setFieldErrors(errors);
+      toast.error(e.response?.data?.message || e.message);
+    },
   });
 
   return (
     <ModalShell title={title} onClose={onClose}>
       <form
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
+          const errors = validate();
+          if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors);
+            return;
+          }
+          setFieldErrors({});
           save.mutate();
         }}
         className="mt-5 space-y-4"
@@ -1106,8 +1409,18 @@ function AddFinancialModal({
           onChange={setLabel}
           options={type === "expenses" ? EXPENSE_CATEGORIES : REVENUE_SOURCES}
         />
-        <Field label="Amount (BDT)">
-          <input required type="number" step="any" min="0" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <Field label="Amount (BDT)" error={fieldErrors.amount?.[0]}>
+          <input
+            type="number"
+            step="any"
+            min="0"
+            className={inputCls}
+            value={amount}
+            onChange={(e) => {
+              setAmount(e.target.value);
+              if (fieldErrors.amount) setFieldErrors((p) => ({ ...p, amount: undefined }));
+            }}
+          />
         </Field>
         <Field label="Description (optional)">
           <textarea className={`${inputCls} min-h-[60px]`} value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -1116,7 +1429,7 @@ function AddFinancialModal({
           <input
             type="file"
             accept="image/jpeg,image/png,application/pdf"
-            onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+            onChange={(e) => setReceipt(pickValidatedFile(e.target, RECEIPT_LIKE_RULES))}
             className={`${inputCls} file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-foreground`}
           />
         </Field>

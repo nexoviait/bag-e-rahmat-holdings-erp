@@ -7,6 +7,10 @@ import { DatePicker } from "@/components/DatePicker";
 import { Plus, Trash2, Edit2, Loader2, X, Download, Search, Calendar, RefreshCw, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { useReceiptPreview, ReceiptPreviewModal } from "@/components/ReceiptViewer";
+import { pickValidatedFile } from "@/lib/fileValidation";
+
+// Mirrors FinancialController::handleReceiptUpload()'s allowlist/size rule.
+const RECEIPT_RULES = { extensions: ["jpg", "jpeg", "png", "pdf"], maxBytes: 10 * 1024 * 1024 };
 
 type Row = Record<string, any>;
 
@@ -622,7 +626,7 @@ function RecordDialog({
             <input
               type="file"
               accept="image/jpeg,image/png,application/pdf"
-              onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+              onChange={(e) => setReceipt(pickValidatedFile(e.target, RECEIPT_RULES))}
               className="dlg-input file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-foreground"
             />
             {initialData?.receipt_path && (

@@ -2,6 +2,7 @@ import { useEcho } from "@laravel/echo-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useSession } from "@/lib/session";
+import { playNotificationSound } from "@/lib/sound";
 
 type IncomingMessage = {
   id: number;
@@ -52,6 +53,7 @@ export function ChatIncomingListener() {
     const onThatProjectsChat = location.pathname === `/projects/${payload.project_id}/chat`;
     if (onThatProjectsChat) return;
 
+    playNotificationSound();
     toast.message(payload.sender.name, {
       description: previewText(payload),
       action: {

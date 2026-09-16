@@ -5,6 +5,14 @@ import { PageHeader, AdminNavTabs } from "@/components/AppShell";
 import { useIsAdmin } from "@/lib/session";
 import { toast } from "sonner";
 import { Sliders, Upload, Loader2, Image as ImageIcon, Save, Check } from "lucide-react";
+import { pickValidatedFile } from "@/lib/fileValidation";
+
+// Mirrors SettingController's rules: logo requires Laravel's `image` check
+// (max:5120) — any real image format, checked here by extension as a rough
+// proxy; favicon has no extension restriction server-side at all (just
+// max:2048), so only its size is checked here.
+const LOGO_RULES = { extensions: ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"], maxBytes: 5 * 1024 * 1024 };
+const FAVICON_RULES = { maxBytes: 2 * 1024 * 1024 };
 
 export function SettingsPage() {
   const isAdmin = useIsAdmin();
@@ -73,7 +81,7 @@ export function SettingsPage() {
   }
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const file = pickValidatedFile(e.target, LOGO_RULES);
     if (file) {
       setLogoFile(file);
       setLogoPreview(URL.createObjectURL(file));
@@ -81,7 +89,7 @@ export function SettingsPage() {
   };
 
   const handleFaviconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const file = pickValidatedFile(e.target, FAVICON_RULES);
     if (file) {
       setFaviconFile(file);
       setFaviconPreview(URL.createObjectURL(file));

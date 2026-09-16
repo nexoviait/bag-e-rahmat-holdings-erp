@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useEcho, usePresenceChannel } from "@laravel/echo-react";
+import { playNotificationSound } from "@/lib/sound";
 import { Conversation } from "./chat/types";
 import { ConversationList } from "./chat/ConversationList";
 import { MessageThread } from "./chat/MessageThread";
@@ -27,6 +28,14 @@ export function ChatTab({ projectId }: { projectId: string }) {
 
   const conversations = conversationsQuery.data ?? [];
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
+
+  // Read inside the .message.sent handler below instead of `selectedId`
+  // directly — that handler is registered once by useEcho and would
+  // otherwise close over whichever conversation was selected at mount time.
+  const selectedIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   // Shared by both the "+" modal and the empty-state's "Online Now" quick-DM
   // shortcut — either path lands on the same "add it to the list, open it" result.
@@ -57,10 +66,23 @@ export function ChatTab({ projectId }: { projectId: string }) {
   // without this, every OTHER conversation's sidebar row would only ever
   // catch up via the 30s poll below. MessageSent broadcasts to every
   // recipient's personal channel precisely so this fan-out is possible.
-  useEcho(`chat.user.${myId}`, ".message.sent", (payload: { project_id: number }) => {
-    if (payload.project_id !== Number(projectId)) return;
-    qc.invalidateQueries({ queryKey: conversationsKey });
-  });
+  useEcho(
+    `chat.user.${myId}`,
+    ".message.sent",
+    (payload: { project_id: number; conversation_id: number; sender: { id: number } | null }) => {
+      if (payload.project_id !== Number(projectId)) return;
+      qc.invalidateQueries({ queryKey: conversationsKey });
+
+      // Sound only for a message landing in a conversation OTHER than the one
+      // currently open — the open thread's own bubble appearing is feedback
+      // enough, and ChatIncomingListener (global, outside this page) already
+      // stays silent everywhere on this project's /chat route, so this is the
+      // one place that actually covers "on this page, but a different chat".
+      const isMine = payload.sender?.id === myId;
+      const isOpenConversation = payload.conversation_id === selectedIdRef.current;
+      if (!isMine && !isOpenConversation) playNotificationSound();
+    }
+  );
 
   // Presence — one subscription per open Chat tab. "here"/"joining"/"leaving"
   // give the live online roster; users.last_seen_at (see UpdateLastSeenAt

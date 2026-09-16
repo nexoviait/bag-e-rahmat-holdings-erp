@@ -110,6 +110,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/materials', [MaterialController::class, 'store']);
         Route::put('/materials/{id}', [MaterialController::class, 'update']);
         Route::delete('/materials/{id}', [MaterialController::class, 'destroy']);
+        Route::get('/materials/{id}/attachment', [MaterialController::class, 'attachment']);
 
         Route::get('/material-transactions', [MaterialTransactionController::class, 'index']);
         Route::post('/material-transactions', [MaterialTransactionController::class, 'store']);

@@ -349,9 +349,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Main Content */}
+      {/* Main Content — no max-width cap: every page fills the full
+          available width next to the sidebar instead of leaving unused
+          margins on wide screens. Applied once here so it's consistent
+          across the whole app, not per-page. */}
       <main className="min-w-0 flex-1 lg:pl-64 print:pl-0">
-        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 mt-14 lg:mt-0 print:m-0 print:p-0 print:max-w-none">
+        <div className="px-4 py-8 sm:px-6 lg:px-8 mt-14 lg:mt-0 print:m-0 print:p-0">
           {children}
         </div>
       </main>

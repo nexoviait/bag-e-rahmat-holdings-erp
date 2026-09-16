@@ -16,6 +16,9 @@ class MaterialResource extends JsonResource
             'unit' => $this->unit,
             'reorder_level' => $this->reorder_level,
             'notes' => $this->notes,
+            'attachment_path' => $this->attachment_path,
+            'attachment_name' => $this->attachment_name,
+            'attachment_mime' => $this->attachment_mime,
             'is_active' => $this->is_active,
             // Only present when loaded via listWithStock() — null on a bare
             // find()/create() response where no stock aggregate was computed.

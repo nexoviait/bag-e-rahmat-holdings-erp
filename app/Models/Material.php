@@ -12,6 +12,9 @@ class Material extends Model
         'unit',
         'reorder_level',
         'notes',
+        'attachment_path',
+        'attachment_name',
+        'attachment_mime',
         'is_active',
         'created_by',
     ];

@@ -4,6 +4,7 @@ import { useEcho } from "@laravel/echo-react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { toast } from "sonner";
+import { playCallEndSound } from "@/lib/sound";
 import { Call } from "@/pages/project-tabs/chat/types";
 import { IncomingCallModal } from "./IncomingCallModal";
 import { CallScreen } from "./CallScreen";
@@ -49,6 +50,7 @@ export function CallManager({ children }: { children: React.ReactNode }) {
     if (call.status === "ended" || call.status === "missed" || call.status === "declined") {
       const label =
         call.status === "missed" ? "Missed call" : call.status === "declined" ? "Call declined" : "Call ended";
+      playCallEndSound();
       toast.message(label);
       setCall(null);
     }

@@ -3,6 +3,7 @@ import { Mic, MicOff, PhoneOff, Video, VideoOff } from "lucide-react";
 import { Avatar } from "@/pages/project-tabs/chat/Avatar";
 import { Call } from "@/pages/project-tabs/chat/types";
 import { useCallPeer } from "@/hooks/useCallPeer";
+import { startRingback } from "@/lib/sound";
 
 function RemoteVideoTile({ stream }: { stream: MediaStream }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -52,6 +53,21 @@ export function CallScreen({
 
   const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
   const ss = String(elapsedSec % 60).padStart(2, "0");
+
+  // "Calling…" ringback tone — only for the person who placed the call, and
+  // only while it's still "ringing" (nobody has joined yet). Gated on
+  // call.status rather than ringingOthers.length so it stops the instant the
+  // first person answers, even in a group call where other invitees are
+  // still ringing — hearing a beep-beep for a straggler while you're already
+  // mid-conversation would be annoying, not "standard". Restricted to the
+  // initiator specifically — an already-joined callee in that same group
+  // call shouldn't hear their own "calling…" tone for someone else's ring.
+  const isInitiator = call.initiated_by === myUserId;
+  useEffect(() => {
+    if (!isInitiator || call.status !== "ringing") return;
+    const { stop } = startRingback();
+    return stop;
+  }, [isInitiator, call.status]);
 
   // Always a single column on mobile — a 1:1 call's two tiles squeezed
   // side-by-side on a phone would each be an unusably thin sliver. Widens to

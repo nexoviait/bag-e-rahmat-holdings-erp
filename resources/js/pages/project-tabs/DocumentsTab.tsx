@@ -17,6 +17,13 @@ import {
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
+import { pickValidatedFile } from "@/lib/fileValidation";
+
+// Mirrors ProjectDocumentController::ALLOWED_EXTENSIONS and its max:20480 rule.
+const DOCUMENT_RULES = {
+  extensions: ["pdf", "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx", "jpg", "jpeg", "png", "txt", "zip"],
+  maxBytes: 20 * 1024 * 1024,
+};
 
 export function DocumentsTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
@@ -659,8 +666,9 @@ function UploadDialog({
                 className="hidden"
                 accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.txt,.zip,.csv"
                 onChange={(e) => {
-                  setFile(e.target.files?.[0] ?? null);
-                  if (fieldErrors.file) setFieldErrors((p) => ({ ...p, file: undefined }));
+                  const picked = pickValidatedFile(e.target, DOCUMENT_RULES);
+                  setFile(picked);
+                  if (picked && fieldErrors.file) setFieldErrors((p) => ({ ...p, file: undefined }));
                 }}
               />
               {file && (

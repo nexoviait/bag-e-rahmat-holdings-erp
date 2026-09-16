@@ -1,11 +1,27 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, Link, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { statusLabels, fmtBDT } from "@/lib/format";
 import { useIsAdmin } from "@/lib/session";
 import { DatePicker } from "@/components/DatePicker";
-import { Loader2, Edit2, X, Wallet, Users, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Loader2,
+  Edit2,
+  X,
+  Wallet,
+  Users,
+  Menu,
+  LayoutDashboard,
+  TrendingUp,
+  TrendingDown,
+  ClipboardList,
+  MessageSquare,
+  Banknote,
+  FileText,
+  Video,
+  BarChart3,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { OverviewTab } from "./project-tabs/OverviewTab";
@@ -23,24 +39,12 @@ export function ProjectDetailPage() {
   const isAdmin = useIsAdmin();
   const [openEdit, setOpenEdit] = useState(false);
 
-  // Tracks whether the tab strip below has more tabs hidden off-screen in
-  // either direction, so the fade hint + tap-to-scroll arrows only show up
-  // when there's actually something to scroll to (matters most on mobile,
-  // where all 8 tabs never fit and swiping isn't otherwise discoverable).
-  const tabsScrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
-  const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
-
-  function updateTabScrollState() {
-    const el = tabsScrollRef.current;
-    if (!el) return;
-    setCanScrollTabsLeft(el.scrollLeft > 4);
-    setCanScrollTabsRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
-  }
-
-  function scrollTabs(direction: 1 | -1) {
-    tabsScrollRef.current?.scrollBy({ left: direction * 140, behavior: "smooth" });
-  }
+  // The tab strip is a click-to-open sidebar drawer (same pattern as the
+  // app's own main nav drawer) rather than a horizontal strip or a
+  // per-breakpoint dropdown — one implementation that's equally usable on
+  // desktop and mobile, since 10 tabs (several multi-word, like "Owner
+  // Payments") never comfortably fit either as a row or a wide dropdown.
+  const [navOpen, setNavOpen] = useState(false);
 
   const { data: project, isLoading } = useQuery({
     queryKey: ["project", projectId],
@@ -51,27 +55,43 @@ export function ProjectDetailPage() {
     },
   });
 
-  // Re-check once the tab strip actually mounts (project finishes loading)
-  // and whenever the viewport resizes; onScroll below keeps it live during
-  // an actual scroll/swipe.
-  useEffect(() => {
-    updateTabScrollState();
-    window.addEventListener("resize", updateTabScrollState);
-    return () => window.removeEventListener("resize", updateTabScrollState);
-  }, [project]);
-
   const tabs = [
-    { path: "", label: "Dashboard" },
-    { path: "/revenue", label: "Revenue" },
-    { path: "/expenses", label: "Expenses" },
-    { path: "/daily-log", label: "Daily Log" },
-    { path: "/chat", label: "Chat" },
-    { path: "/shareholders", label: "Shareholders" },
-    { path: "/payments", label: "Owner Payments" },
-    { path: "/documents", label: "Documents" },
-    { path: "/cctv", label: "CCTV" },
-    { path: "/reports", label: "Reports" },
+    { path: "", label: "Dashboard", icon: LayoutDashboard },
+    { path: "/revenue", label: "Revenue", icon: TrendingUp },
+    { path: "/expenses", label: "Expenses", icon: TrendingDown },
+    { path: "/daily-log", label: "Daily Log", icon: ClipboardList },
+    { path: "/chat", label: "Chat", icon: MessageSquare },
+    { path: "/shareholders", label: "Shareholders", icon: Users },
+    { path: "/payments", label: "Owner Payments", icon: Banknote },
+    { path: "/documents", label: "Documents", icon: FileText },
+    { path: "/cctv", label: "CCTV", icon: Video },
+    { path: "/reports", label: "Reports", icon: BarChart3 },
   ];
+
+  const base = `/projects/${projectId}`;
+  const currentSubPath = location.pathname.replace(base, "");
+
+  const isTabActive = (t: (typeof tabs)[number]) =>
+    t.path === "" ? currentSubPath === "" || currentSubPath === "/" : currentSubPath === t.path;
+  const activeTab = tabs.find(isTabActive) ?? tabs[0];
+
+  // Any navigation (including the browser back/forward buttons, which never
+  // fire a drawer item's own onClick) should close the drawer. Placed above
+  // the isLoading/!project early returns below so hook order stays stable
+  // across renders regardless of load state.
+  useEffect(() => {
+    setNavOpen(false);
+  }, [currentSubPath]);
+
+  // Escape closes the drawer too, matching the click-outside-to-close scrim.
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNavOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [navOpen]);
 
   if (isLoading)
     return (
@@ -86,9 +106,6 @@ export function ProjectDetailPage() {
         Project not found or you don't have access.
       </div>
     );
-
-  const base = `/projects/${projectId}`;
-  const currentSubPath = location.pathname.replace(base, "");
 
   const renderActiveTab = () => {
     switch (currentSubPath) {
@@ -159,60 +176,113 @@ export function ProjectDetailPage() {
         )}
       </div>
 
-      <div className="relative mb-8 print:hidden">
-        <div
-          ref={tabsScrollRef}
-          onScroll={updateTabScrollState}
-          className="flex items-center gap-1 border-b border-border/60 overflow-x-auto no-scrollbar whitespace-nowrap"
+      {/* Mobile/tablet trigger — below `lg` there's no room for a permanent
+          sidebar next to the content, so it opens as a drawer instead. At
+          `lg` and up the sidebar below is always visible and this is
+          hidden entirely. */}
+      <div className="mb-4 lg:hidden print:hidden">
+        <button
+          onClick={() => setNavOpen(true)}
+          aria-expanded={navOpen}
+          aria-label="Open section menu"
+          className="inline-flex items-center gap-2.5 rounded-lg border border-border bg-surface-2 px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-gold/40 cursor-pointer"
         >
-          {tabs.map((t) => {
-            const active =
-              t.path === ""
-                ? currentSubPath === "" || currentSubPath === "/"
-                : currentSubPath === t.path;
-            return (
-              <Link
-                key={t.label}
-                to={`${base}${t.path}`}
-                className={`relative shrink-0 px-4 py-2.5 text-sm font-medium transition ${
-                  active ? "text-foreground font-semibold" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {t.label}
-                {active && (
-                  <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gold" />
-                )}
-              </Link>
-            );
-          })}
-        </div>
-
-        {/* Scroll hints — a fade so it's visually obvious there's more, plus
-            a tappable arrow so it's reachable without knowing you can swipe.
-            Only rendered on the side that actually has more to scroll to. */}
-        {canScrollTabsLeft && (
-          <button
-            onClick={() => scrollTabs(-1)}
-            aria-label="Scroll tabs left"
-            className="absolute inset-y-0 left-0 flex items-center bg-gradient-to-r from-background via-background/90 to-transparent pr-4 pl-1 text-gold cursor-pointer"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-        )}
-        {canScrollTabsRight && (
-          <button
-            onClick={() => scrollTabs(1)}
-            aria-label="Scroll tabs right"
-            className="absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-background via-background/90 to-transparent pl-4 pr-1 text-gold cursor-pointer"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        )}
+          <Menu className="h-4 w-4 text-gold" />
+          <span className="h-4 w-px bg-border" />
+          <activeTab.icon className="h-4 w-4 text-gold" />
+          {activeTab.label}
+        </button>
       </div>
 
-      {renderActiveTab()}
+      {/* Mobile/tablet drawer — same card menu as the permanent sidebar,
+          slid in as an overlay since it can't be always-visible at this
+          width. `lg:hidden` keeps it out of the way once the permanent
+          sidebar takes over. */}
+      {navOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden print:hidden">
+          <div
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm"
+            onClick={() => setNavOpen(false)}
+          />
+          <aside className="fixed inset-y-0 left-0 top-14 z-10 flex w-80 max-w-[85vw] flex-col border-r border-border bg-popover text-popover-foreground shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-4">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-gold">
+                  {project.code ?? "Project"}
+                </div>
+                <div className="truncate font-display text-base font-semibold">{project.name}</div>
+              </div>
+              <button
+                onClick={() => setNavOpen(false)}
+                aria-label="Close section menu"
+                className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
+              >
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+
+            <nav className="flex-1 space-y-1.5 overflow-y-auto p-3">
+              <NavCards tabs={tabs} base={base} isTabActive={isTabActive} onNavigate={() => setNavOpen(false)} />
+            </nav>
+          </aside>
+        </div>
+      )}
+
+      <div className="lg:flex lg:items-start lg:gap-6">
+        {/* Desktop/laptop — a permanent sidebar, always visible next to the
+            content rather than something you have to open. Sticky so it
+            stays in view while the page scrolls. */}
+        <aside className="hidden lg:sticky lg:top-8 lg:flex lg:w-64 lg:max-h-[calc(100vh-4rem)] lg:shrink-0 lg:flex-col lg:gap-1.5 lg:overflow-y-auto print:hidden">
+          <NavCards tabs={tabs} base={base} isTabActive={isTabActive} />
+        </aside>
+
+        <div className="min-w-0 flex-1">{renderActiveTab()}</div>
+      </div>
 
       {openEdit && <EditProjectModal project={project} onClose={() => setOpenEdit(false)} />}
+    </>
+  );
+}
+
+function NavCards({
+  tabs,
+  base,
+  isTabActive,
+  onNavigate,
+}: {
+  tabs: { path: string; label: string; icon: React.ComponentType<{ className?: string }> }[];
+  base: string;
+  isTabActive: (t: { path: string; label: string }) => boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <>
+      {tabs.map((t) => {
+        const active = isTabActive(t);
+        const Icon = t.icon;
+        return (
+          <Link
+            key={t.label}
+            to={`${base}${t.path}`}
+            onClick={onNavigate}
+            className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 text-sm font-medium transition ${
+              active
+                ? "border-gold/50 bg-gold/10 text-gold"
+                : "border-border/60 bg-surface-2/60 text-foreground hover:border-gold/30 hover:bg-surface-2"
+            }`}
+          >
+            <span
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
+                active ? "bg-gold/20 text-gold" : "bg-surface text-muted-foreground"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+            </span>
+            {t.label}
+            {active && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />}
+          </Link>
+        );
+      })}
     </>
   );
 }
