@@ -3,7 +3,7 @@ import { useParams, Link, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { statusLabels, fmtBDT } from "@/lib/format";
-import { useIsAdmin } from "@/lib/session";
+import { useIsAdmin, useHasPermission } from "@/lib/session";
 import { DatePicker } from "@/components/DatePicker";
 import {
   Loader2,
@@ -55,18 +55,33 @@ export function ProjectDetailPage() {
     },
   });
 
+  // Every non-Dashboard tab is gated on the same permission its own content
+  // component checks server-side — previously this list was unconditional,
+  // so a role with (say) no cctv.view permission still saw a "CCTV" tab in
+  // the sidebar, only to hit an empty/blocked state after clicking in. Daily
+  // Log covers two permissions (materials/labor) since either one alone is
+  // enough reason to show that tab.
+  const canViewFinancials = useHasPermission("financials.view");
+  const canViewMaterials = useHasPermission("materials.view");
+  const canViewLabor = useHasPermission("labor.view");
+  const canViewChat = useHasPermission("chat.view");
+  const canViewShareholders = useHasPermission("shareholders.view");
+  const canViewDocuments = useHasPermission("documents.view");
+  const canViewCctv = useHasPermission("cctv.view");
+  const canViewReports = useHasPermission("reports.view");
+
   const tabs = [
-    { path: "", label: "Dashboard", icon: LayoutDashboard },
-    { path: "/revenue", label: "Revenue", icon: TrendingUp },
-    { path: "/expenses", label: "Expenses", icon: TrendingDown },
-    { path: "/daily-log", label: "Daily Log", icon: ClipboardList },
-    { path: "/chat", label: "Chat", icon: MessageSquare },
-    { path: "/shareholders", label: "Shareholders", icon: Users },
-    { path: "/payments", label: "Owner Payments", icon: Banknote },
-    { path: "/documents", label: "Documents", icon: FileText },
-    { path: "/cctv", label: "CCTV", icon: Video },
-    { path: "/reports", label: "Reports", icon: BarChart3 },
-  ];
+    { path: "", label: "Dashboard", icon: LayoutDashboard, visible: true },
+    { path: "/revenue", label: "Revenue", icon: TrendingUp, visible: canViewFinancials },
+    { path: "/expenses", label: "Expenses", icon: TrendingDown, visible: canViewFinancials },
+    { path: "/daily-log", label: "Daily Log", icon: ClipboardList, visible: canViewMaterials || canViewLabor },
+    { path: "/chat", label: "Chat", icon: MessageSquare, visible: canViewChat },
+    { path: "/shareholders", label: "Shareholders", icon: Users, visible: canViewShareholders },
+    { path: "/payments", label: "Owner Payments", icon: Banknote, visible: canViewFinancials },
+    { path: "/documents", label: "Documents", icon: FileText, visible: canViewDocuments },
+    { path: "/cctv", label: "CCTV", icon: Video, visible: canViewCctv },
+    { path: "/reports", label: "Reports", icon: BarChart3, visible: canViewReports },
+  ].filter((t) => t.visible);
 
   const base = `/projects/${projectId}`;
   const currentSubPath = location.pathname.replace(base, "");

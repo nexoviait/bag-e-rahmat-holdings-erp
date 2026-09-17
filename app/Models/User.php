@@ -52,6 +52,21 @@ class User extends Authenticatable
         return $this->hasOne(Shareholder::class);
     }
 
+    /**
+     * Single source of truth for "can this user touch project #$projectId
+     * at all" — super_admin/admin get the same blanket oversight bypass used
+     * everywhere else in this app (CCTV, Documents, Materials, Chat's own
+     * viewAny), everyone else needs a real ProjectAssignment row. Introduced
+     * because FinancialController and ReportController's project-scoped
+     * endpoints had NO such check at all — any authenticated user could read
+     * (and Financial's could write) any other project's financial/report
+     * data just by knowing its id.
+     */
+    public function canAccessProject(int $projectId): bool
+    {
+        return $this->hasAnyRole(['super_admin', 'admin']) || $this->projects->contains($projectId);
+    }
+
     public function assignedCameras()
     {
         return $this->belongsToMany(CameraChannel::class, 'camera_user_assignments')->withTimestamps();

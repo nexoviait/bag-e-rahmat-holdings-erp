@@ -18,6 +18,7 @@ final readonly class MaterialTransactionData
         public ?float $carryingCost,
         public ?string $supplier,
         public ?string $usedFor,
+        public ?string $notes,
         public ?string $receiptPath = null,
         public ?string $receiptName = null,
         public ?string $receiptMime = null,
@@ -74,6 +75,9 @@ final readonly class MaterialTransactionData
             // as to a usage — the user's sheet tags every purchase row with
             // the work item it's for (e.g. "Mat CC"), not only consumption.
             usedFor: $data['used_for'] ?? null,
+            // A free-text comment on this one row — distinct from used_for's
+            // short work-item tag, and applies to IN or OUT alike.
+            notes: $data['notes'] ?? null,
         );
     }
 
@@ -92,6 +96,7 @@ final readonly class MaterialTransactionData
             carryingCost: $this->carryingCost,
             supplier: $this->supplier,
             usedFor: $this->usedFor,
+            notes: $this->notes,
             receiptPath: $attrs['receipt_path'],
             receiptName: $attrs['receipt_name'],
             receiptMime: $attrs['receipt_mime'],
@@ -112,6 +117,7 @@ final readonly class MaterialTransactionData
             'carrying_cost' => $this->carryingCost,
             'supplier' => $this->supplier,
             'used_for' => $this->usedFor,
+            'notes' => $this->notes,
         ];
 
         // Only present (and only overwritten) when a new receipt was actually

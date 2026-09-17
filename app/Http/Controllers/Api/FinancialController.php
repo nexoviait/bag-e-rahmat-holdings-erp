@@ -40,6 +40,13 @@ class FinancialController extends Controller
             $request->validate(['project_id' => 'required|exists:projects,id']);
             $model = $this->getModel($type);
 
+            if (!$request->user()->canAccessProject((int) $request->project_id)) {
+                return response()->json(['message' => 'You do not have permission to view this project\'s financials.'], 403);
+            }
+            if (!$request->user()->can('financials.view')) {
+                return response()->json(['message' => 'You do not have permission to view financials.'], 403);
+            }
+
             $items = $model::where('project_id', $request->project_id)
                 ->orderBy('date', 'desc')
                 ->get();
@@ -110,6 +117,13 @@ class FinancialController extends Controller
                 'receipt' => 'nullable|file|max:10240',
             ]);
 
+            if (!$request->user()->canAccessProject((int) $validated['project_id'])) {
+                return response()->json(['message' => 'You do not have permission to add financial entries to this project.'], 403);
+            }
+            if (!$request->user()->can('financials.create')) {
+                return response()->json(['message' => 'You do not have permission to add financial entries.'], 403);
+            }
+
             $receiptAttrs = $this->handleReceiptUpload($request, $type);
 
             $item = $model::create([
@@ -141,6 +155,13 @@ class FinancialController extends Controller
         try {
             $model = $this->getModel($type);
             $item = $model::findOrFail($id);
+
+            if (!$request->user()->canAccessProject((int) $item->project_id)) {
+                return response()->json(['message' => 'You do not have permission to edit this financial entry.'], 403);
+            }
+            if (!$request->user()->can('financials.edit')) {
+                return response()->json(['message' => 'You do not have permission to edit financial entries.'], 403);
+            }
 
             $validated = $request->validate([
                 'amount' => 'required|numeric|min:0',
@@ -193,6 +214,14 @@ class FinancialController extends Controller
         try {
             $model = $this->getModel($type);
             $item = $model::findOrFail($id);
+
+            if (!$request->user()->canAccessProject((int) $item->project_id)) {
+                return response()->json(['message' => 'You do not have permission to delete this financial entry.'], 403);
+            }
+            if (!$request->user()->can('financials.delete')) {
+                return response()->json(['message' => 'You do not have permission to delete financial entries.'], 403);
+            }
+
             $projectId = $item->project_id;
             $amount = $item->amount;
 
@@ -227,6 +256,13 @@ class FinancialController extends Controller
         try {
             $model = $this->getModel($type);
             $item = $model::findOrFail($id);
+
+            if (!$request->user()->canAccessProject((int) $item->project_id)) {
+                return response()->json(['message' => 'You do not have permission to view this receipt.'], 403);
+            }
+            if (!$request->user()->can('financials.view')) {
+                return response()->json(['message' => 'You do not have permission to view receipts.'], 403);
+            }
 
             if (!$item->receipt_path || !Storage::disk('local')->exists($item->receipt_path)) {
                 return response()->json(['message' => 'Receipt not found.'], 404);

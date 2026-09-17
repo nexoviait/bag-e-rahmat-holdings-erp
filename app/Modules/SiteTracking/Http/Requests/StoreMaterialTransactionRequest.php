@@ -29,6 +29,7 @@ class StoreMaterialTransactionRequest extends FormRequest
             'carrying_cost' => ['nullable', 'numeric', 'min:0'],
             'supplier' => ['nullable', 'string', 'max:150'],
             'used_for' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string'],
             'receipt' => ['nullable', 'file', 'max:10240'],
         ];
     }

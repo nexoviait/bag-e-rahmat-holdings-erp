@@ -246,3 +246,30 @@ textarea.pi:focus {
   -ms-overflow-style: none !important;
   scrollbar-width: none !important;
 }
+
+/* Standard app-wide scrollbar — every scrollable panel (modals, tables,
+   dropdowns, the sidebar drawer) gets one slim, theme-matched scrollbar
+   instead of each browser's own default (a thick, light-colored bar that
+   clashes with this app's dark theme). Opts out via .no-scrollbar above
+   where a scrollbar would be visual noise (e.g. a nav list meant to look
+   scroll-less). Firefox first (the shorthand its own scrollbar-width/-color
+   properties need), then the actual pseudo-element styling every other
+   browser uses. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--gold);
+}

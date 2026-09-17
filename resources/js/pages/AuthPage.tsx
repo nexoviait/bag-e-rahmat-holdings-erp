@@ -163,6 +163,10 @@ export function AuthPage() {
             </button>
           </form>
         </div>
+
+        <p className="mt-6 text-center text-[11px] text-muted-foreground">
+          Developed by <span className="font-medium text-gold">Nexovia IT</span>
+        </p>
       </div>
     </div>
   );

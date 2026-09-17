@@ -65,6 +65,10 @@ class ReportController extends Controller
     public function projectSummary(Request $request, $projectId)
     {
         try {
+            if (!$request->user()->canAccessProject((int) $projectId)) {
+                return response()->json(['message' => 'You do not have permission to view this project\'s report.'], 403);
+            }
+
             $b = Budget::where('project_id', $projectId)->get();
             $r = Revenue::where('project_id', $projectId)->get();
             $e = Expense::where('project_id', $projectId)->get();
@@ -94,6 +98,10 @@ class ReportController extends Controller
     public function projectReport(Request $request, $projectId)
     {
         try {
+            if (!$request->user()->canAccessProject((int) $projectId)) {
+                return response()->json(['message' => 'You do not have permission to view this project\'s report.'], 403);
+            }
+
             $b = Budget::where('project_id', $projectId)->get();
             $r = Revenue::where('project_id', $projectId)->get();
             $e = Expense::where('project_id', $projectId)->get();
@@ -126,6 +134,10 @@ class ReportController extends Controller
     public function projectRecent(Request $request, $projectId)
     {
         try {
+            if (!$request->user()->canAccessProject((int) $projectId)) {
+                return response()->json(['message' => 'You do not have permission to view this project\'s recent transactions.'], 403);
+            }
+
             $r = Revenue::where('project_id', $projectId)->select('id', 'amount', 'date', 'source as label', 'description')->orderBy('date', 'desc')->limit(5)->get()->map(fn($x) => array_merge($x->toArray(), ['kind' => 'Revenue']));
             $e = Expense::where('project_id', $projectId)->select('id', 'amount', 'date', 'category as label', 'description')->orderBy('date', 'desc')->limit(5)->get()->map(fn($x) => array_merge($x->toArray(), ['kind' => 'Expense']));
             $o = OwnerPayment::where('project_id', $projectId)->select('id', 'amount', 'date', 'paid_to as label', 'description')->orderBy('date', 'desc')->limit(5)->get()->map(fn($x) => array_merge($x->toArray(), ['kind' => 'Owner Payment']));

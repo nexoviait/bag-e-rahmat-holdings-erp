@@ -218,6 +218,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <LogOut className="h-4 w-4" />
             </button>
           </div>
+          <div className="mt-3 border-t border-sidebar-border/60 pt-3 text-center text-[10px] text-muted-foreground">
+            Developed by <span className="font-medium text-gold">Nexovia IT</span>
+          </div>
         </div>
       </aside>
 
@@ -352,6 +355,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 >
                   <LogOut className="h-4 w-4" />
                 </button>
+              </div>
+              <div className="mt-3 border-t border-sidebar-border/60 pt-3 text-center text-[10px] text-muted-foreground">
+                Developed by <span className="font-medium text-gold">Nexovia IT</span>
               </div>
             </div>
           </aside>

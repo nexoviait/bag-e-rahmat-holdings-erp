@@ -7,6 +7,63 @@ import { roleLabels } from "@/lib/format";
 import { toast } from "sonner";
 import { Shield, Plus, Edit2, Trash2, X, Check, Lock, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 
+// Plain-language description of what each permission slug actually unlocks
+// in the app — a raw slug like "cctv.view" doesn't make it obvious it also
+// gates the main sidebar's "Live Monitoring" page, not just the per-project
+// CCTV tab, so this exists specifically to remove that kind of ambiguity for
+// whoever is managing roles here. Falls back to showing just the slug (no
+// description line) for anything not listed — never blocks a permission from
+// being toggled, purely informational.
+const PERMISSION_LABELS: Record<string, string> = {
+  "projects.view": "View the Projects list",
+  "projects.create": "Create new projects",
+  "projects.edit": "Edit project details",
+  "projects.delete": "Delete projects",
+
+  "financials.view": "Revenue, Expenses & Owner Payments tabs",
+  "financials.create": "Add Revenue, Expenses & Owner Payments",
+  "financials.edit": "Edit Revenue, Expenses & Owner Payments",
+  "financials.delete": "Delete Revenue, Expenses & Owner Payments",
+
+  "shareholders.view": "The Shareholders tab",
+  "shareholders.manage": "Edit shareholder equity & details",
+
+  "documents.view": "The Documents tab",
+  "documents.create": "Upload documents",
+  "documents.edit": "Edit document details",
+  "documents.delete": "Delete documents",
+
+  "cctv.view": "Sidebar's Live Monitoring page + the per-project CCTV tab",
+  "cctv.devices.view": "View DVR device settings",
+  "cctv.devices.create": "Add DVR devices",
+  "cctv.devices.edit": "Edit DVR devices",
+  "cctv.devices.delete": "Delete DVR devices",
+  "cctv.devices.test": "Test DVR connectivity",
+  "cctv.cameras.edit": "Edit individual camera settings",
+  "cctv.snapshot": "View live camera snapshots/streams",
+  "cctv.logs.view": "View CCTV activity/event logs",
+  "cctv.assign": "Assign cameras to specific users",
+  "cctv.playback.view": "View recorded footage playback",
+
+  "materials.view": "Daily Log's material stock",
+  "materials.create": "Add materials",
+  "materials.edit": "Edit materials",
+  "materials.delete": "Delete materials",
+
+  "labor.view": "Daily Log's labor entries",
+  "labor.create": "Log labor entries",
+  "labor.edit": "Edit labor entries",
+  "labor.delete": "Delete labor entries",
+
+  "chat.view": "The Chat tab",
+  "chat.send": "Send chat messages",
+  "chat.groups.create": "Create group chats",
+  "chat.calls.initiate": "Start voice/video calls",
+
+  "users.manage": "Manage user accounts & role assignments",
+  "reports.view": "The Reports tab",
+};
+
 export function RolesPage() {
   const isAdmin = useIsAdmin();
   const qc = useQueryClient();
@@ -82,10 +139,30 @@ export function RolesPage() {
     Shareholders: (allPermissions || []).filter((p) => p.startsWith("shareholders.")),
     Documents: (allPermissions || []).filter((p) => p.startsWith("documents.")),
     "CCTV Monitoring": (allPermissions || []).filter((p) => p.startsWith("cctv.")),
+    // Daily Log's two permission prefixes (materials.*, labor.*) grouped
+    // under one heading, same as Administration below combining users./
+    // reports. — both belong to the same tab, not two separate modules a
+    // role-manager would think of independently.
+    "Daily Log": (allPermissions || []).filter(
+      (p) => p.startsWith("materials.") || p.startsWith("labor.")
+    ),
+    "Chat & Calling": (allPermissions || []).filter((p) => p.startsWith("chat.")),
     Administration: (allPermissions || []).filter(
       (p) => p.startsWith("users.") || p.startsWith("reports.")
     ),
   };
+
+  // Anything the backend actually has that doesn't match one of the groups
+  // above would otherwise be silently invisible here — impossible to grant
+  // or revoke through this page at all, even though it's fully enforced on
+  // the backend. Surfaced as its own catch-all group instead, so a future
+  // new permission prefix fails loudly (visible immediately) rather than
+  // silently, the way materials./labor./chat. all did before this fix.
+  const groupedNames = new Set(Object.values(groupedPermissions).flat());
+  const ungrouped = (allPermissions || []).filter((p) => !groupedNames.has(p));
+  if (ungrouped.length > 0) {
+    groupedPermissions["Other"] = ungrouped;
+  }
 
   return (
     <>
@@ -197,15 +274,17 @@ export function RolesPage() {
                         {perms.map((p) => {
                           const hasPerm = rolePerms.includes(p);
                           const disabled = isSuperAdminRole;
+                          const description = PERMISSION_LABELS[p];
 
                           return (
                             <button
                               key={p}
                               disabled={disabled}
+                              title={description}
                               onClick={() =>
                                 !disabled && togglePerm.mutate({ roleId: r.id, permission: p, on: !hasPerm })
                               }
-                              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                              className={`inline-flex max-w-[240px] items-start gap-1.5 rounded-lg border px-3 py-1.5 text-left text-xs font-medium transition ${
                                 disabled
                                   ? "border-gold/40 bg-gold/10 text-gold cursor-not-allowed opacity-80"
                                   : hasPerm
@@ -214,11 +293,22 @@ export function RolesPage() {
                               }`}
                             >
                               {disabled ? (
-                                <Lock className="h-3 w-3 text-gold" />
+                                <Lock className="mt-0.5 h-3 w-3 shrink-0 text-gold" />
                               ) : hasPerm ? (
-                                <Check className="h-3 w-3 text-gold" />
+                                <Check className="mt-0.5 h-3 w-3 shrink-0 text-gold" />
                               ) : null}
-                              <span>{p}</span>
+                              <span className="min-w-0">
+                                <span className="block truncate">{p}</span>
+                                {description && (
+                                  <span
+                                    className={`block truncate text-[10px] font-normal normal-case ${
+                                      hasPerm || disabled ? "text-gold/70" : "text-muted-foreground/80"
+                                    }`}
+                                  >
+                                    {description}
+                                  </span>
+                                )}
+                              </span>
                             </button>
                           );
                         })}

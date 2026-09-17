@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { StatCard } from "@/components/StatCard";
 import { fmtBDT } from "@/lib/format";
 import { DatePicker } from "@/components/DatePicker";
 import { Printer, Download, Calendar, FileText, FileType } from "lucide-react";
@@ -10,6 +9,11 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, TextRun, HeadingLevel, WidthType, AlignmentType } from "docx";
 
+// This tab is Shareholder Report only, by design — Expenses/Revenue/
+// Materials/Labor all have their own dedicated tabs (and Daily Log its own
+// different calculation), so this one thing stays scoped to what it's
+// actually for: each shareholder's ownership % and total invested, not a
+// duplicate financial summary.
 type TimeFilter = "today" | "week" | "month" | "year" | "all" | "custom";
 
 const PERIOD_LABELS: Record<TimeFilter, string> = {
@@ -70,21 +74,8 @@ export function ReportsTab({ projectId }: { projectId: string }) {
     },
   });
 
-  const filteredFinancials = useMemo(() => {
-    if (!data)
-      return {
-        budget: 0,
-        revenue: 0,
-        expenses: 0,
-        owner: 0,
-        invest: 0,
-        materialsCost: 0,
-        laborCost: 0,
-        materialsBySupplier: {} as Record<string, number>,
-        expByCat: {} as Record<string, number>,
-        revBySource: {} as Record<string, number>,
-        shareholders: [],
-      };
+  const shareholders = useMemo(() => {
+    if (!data) return [];
 
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
@@ -105,75 +96,26 @@ export function ReportsTab({ projectId }: { projectId: string }) {
       return true;
     };
 
-    const bRows = (data.budgets || []).filter(filterFn);
-    const rRows = (data.revenues || []).filter(filterFn);
-    const eRows = (data.expenses || []).filter(filterFn);
-    const oRows = (data.ownerPayments || []).filter(filterFn);
     const siRows = (data.shareholderInvestments || []).filter(filterFn);
-    const mRows = (data.materialTransactions || []).filter(filterFn);
-    const lRows = (data.laborLogs || []).filter(filterFn);
-
-    const sum = (rows: any[]) => rows.reduce((s, x) => s + Number(x.amount ?? 0), 0);
-
-    const expByCat = eRows.reduce((acc: Record<string, number>, row: any) => {
-      const cat = row.category || "Uncategorized";
-      acc[cat] = (acc[cat] || 0) + Number(row.amount || 0);
-      return acc;
-    }, {} as Record<string, number>);
-
-    const revBySource = rRows.reduce((acc: Record<string, number>, row: any) => {
-      const src = row.source || "Other";
-      acc[src] = (acc[src] || 0) + Number(row.amount || 0);
-      return acc;
-    }, {} as Record<string, number>);
-
     const investByShareholder = (id: any) =>
       siRows
         .filter((i: any) => i.shareholder_id === id)
         .reduce((s: number, i: any) => s + Number(i.amount), 0);
 
-    // Grouped by supplier with a subtotal per supplier — mirrors how site
-    // purchases are actually tracked (each supplier's deliveries reconciled
-    // together), same shape as the Expense/Revenue breakdowns below.
-    const materialsBySupplier = mRows.reduce((acc: Record<string, number>, row: any) => {
-      const sup = row.supplier || "Unspecified supplier";
-      acc[sup] = (acc[sup] || 0) + Number(row.total_cost ?? 0);
-      return acc;
-    }, {} as Record<string, number>);
-
-    return {
-      budget: sum(bRows),
-      revenue: sum(rRows),
-      expenses: sum(eRows),
-      owner: sum(oRows),
-      invest: sum(siRows),
-      materialsCost: mRows.reduce((s: number, x: any) => s + Number(x.total_cost ?? 0), 0),
-      laborCost: lRows.reduce((s: number, x: any) => s + Number(x.total_cost ?? 0), 0),
-      materialsBySupplier,
-      expByCat,
-      revBySource,
-      shareholders: (data.shareholders || []).map((s: any) => ({
-        ...s,
-        invested: investByShareholder(s.id),
-      })),
-    };
+    return (data.shareholders || []).map((s: any) => ({
+      ...s,
+      invested: investByShareholder(s.id),
+    }));
   }, [data, timeFilter, customStart, customEnd]);
-
-  const totalMoney = filteredFinancials.budget + filteredFinancials.revenue + filteredFinancials.invest;
-  const deductMoney =
-    filteredFinancials.expenses + filteredFinancials.owner + filteredFinancials.materialsCost + filteredFinancials.laborCost;
-  const profit =
-    filteredFinancials.revenue - filteredFinancials.expenses - filteredFinancials.materialsCost - filteredFinancials.laborCost;
-  const net = totalMoney - deductMoney;
 
   function handlePrint() {
     window.print();
   }
 
-  // RFC 4180 field escaping — without this, any project/category/shareholder
-  // name containing a comma (or a quote, or a newline) silently shifts every
-  // column after it, corrupting the file. Wrapping every field in quotes and
-  // doubling internal quotes is the standard, always-safe way to avoid that.
+  // RFC 4180 field escaping — without this, any shareholder name containing
+  // a comma (or a quote, or a newline) silently shifts every column after
+  // it, corrupting the file. Wrapping every field in quotes and doubling
+  // internal quotes is the standard, always-safe way to avoid that.
   function csvField(value: unknown): string {
     const s = value === null || value === undefined ? "" : String(value);
     return `"${s.replace(/"/g, '""')}"`;
@@ -183,47 +125,26 @@ export function ReportsTab({ projectId }: { projectId: string }) {
     return cells.map(csvField).join(",");
   }
 
+  function shareholderRows(): [string, string, string][] {
+    if (shareholders.length === 0) return [["No shareholders found.", "", ""]];
+    return shareholders.map((s: any) => {
+      const pct = Number(s.effective_ownership_pct ?? s.ownership_pct ?? 0);
+      const count = Number(s.effective_share_count ?? s.share_count ?? 0);
+      return [s.name, count > 0 ? `${pct}% (${count} shares)` : `${pct}%`, fmtBDT(Number(s.invested))];
+    });
+  }
+
   function handleExportReportCSV() {
     if (!data) return;
     const rows: unknown[][] = [
-      ["Bag E Rahmat Holdings ERP - Project Financial Summary"],
+      ["Bag E Rahmat Holdings ERP - Shareholder Report"],
       ["Project", project?.name || ""],
       ["Generated Date", new Date().toLocaleDateString()],
       ["Time Filter", timeFilter],
       [],
-      ["Financial Formulas Summary", "Amount (BDT)"],
-      ["Total Money (Budget + Revenue + Invest)", totalMoney],
-      ["Deduct Money (Expenses + Materials + Labor + Owner Payments)", deductMoney],
-      ["Remaining Net Cash Balance", net],
-      ["Gross Profit / Loss (Revenue - Expenses - Materials - Labor)", profit],
-      [],
-      ["Detailed Breakdown Metric", "Amount (BDT)"],
-      ["Total Budget", filteredFinancials.budget],
-      ["Total Revenue", filteredFinancials.revenue],
-      ["Total Expenses", filteredFinancials.expenses],
-      ["Total Materials Cost", filteredFinancials.materialsCost],
-      ["Total Labor Cost", filteredFinancials.laborCost],
-      ["Total Owner Payments", filteredFinancials.owner],
-      ["Total Investments", filteredFinancials.invest],
-      [],
-      ["Expenses by Category", "Amount (BDT)"],
-      ...(Object.keys(filteredFinancials.expByCat).length > 0
-        ? Object.entries(filteredFinancials.expByCat).map(([cat, amt]) => [cat, amt])
-        : [["No expenses in this period.", ""]]),
-      [],
-      ["Revenue by Source", "Amount (BDT)"],
-      ...(Object.keys(filteredFinancials.revBySource).length > 0
-        ? Object.entries(filteredFinancials.revBySource).map(([src, amt]) => [src, amt])
-        : [["No revenue in this period.", ""]]),
-      [],
-      ["Materials by Supplier", "Subtotal (BDT)"],
-      ...(Object.keys(filteredFinancials.materialsBySupplier).length > 0
-        ? Object.entries(filteredFinancials.materialsBySupplier).map(([sup, amt]) => [sup, amt])
-        : [["No material purchases in this period.", ""]]),
-      [],
-      ["Shareholder Report", "Ownership %", "Shares", "Total Invested (BDT)"],
-      ...(filteredFinancials.shareholders.length > 0
-        ? filteredFinancials.shareholders.map((s: any) => [
+      ["Shareholder", "Ownership %", "Shares", "Total Invested (BDT)"],
+      ...(shareholders.length > 0
+        ? shareholders.map((s: any) => [
             s.name,
             Number(s.effective_ownership_pct ?? s.ownership_pct ?? 0),
             Number(s.effective_share_count ?? s.share_count ?? 0),
@@ -242,12 +163,12 @@ export function ReportsTab({ projectId }: { projectId: string }) {
     const safeName = (project?.name || "project").replace(/[^a-z0-9]+/gi, "_");
     const link = document.createElement("a");
     link.href = url;
-    link.download = `financial_report_${safeName}_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `shareholder_report_${safeName}_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast.success("Financial report exported");
+    toast.success("Shareholder report exported");
   }
 
   function downloadBlob(blob: Blob, filename: string) {
@@ -263,80 +184,20 @@ export function ReportsTab({ projectId }: { projectId: string }) {
 
   function reportFileBaseName() {
     const safeName = (project?.name || "project").replace(/[^a-z0-9]+/gi, "_");
-    return `financial_report_${safeName}_${new Date().toISOString().slice(0, 10)}`;
-  }
-
-  // Simple two-column "label, amount" table sections shared by both PDF and
-  // Word export — kept as plain data here so each renderer just lays it out
-  // in its own format instead of duplicating the numbers.
-  function reportSections(): { title: string; rows: [string, string][] }[] {
-    return [
-      {
-        title: "Financial Formula Summary",
-        rows: [
-          ["Total Money (Budget + Revenue + Invest)", fmtBDT(totalMoney)],
-          ["Deduct Money (Expenses + Materials + Labor + Owner)", fmtBDT(deductMoney)],
-          ["Remaining Net Cash Balance", fmtBDT(net)],
-          ["Gross Profit / Loss", fmtBDT(profit)],
-        ],
-      },
-      {
-        title: "Detailed Breakdown",
-        rows: [
-          ["Total Budget", fmtBDT(filteredFinancials.budget)],
-          ["Total Revenue", fmtBDT(filteredFinancials.revenue)],
-          ["Total Expenses", fmtBDT(filteredFinancials.expenses)],
-          ["Total Materials Cost", fmtBDT(filteredFinancials.materialsCost)],
-          ["Total Labor Cost", fmtBDT(filteredFinancials.laborCost)],
-          ["Total Owner Payments", fmtBDT(filteredFinancials.owner)],
-          ["Total Investments", fmtBDT(filteredFinancials.invest)],
-        ],
-      },
-      {
-        title: "Expenses by Category",
-        rows:
-          Object.keys(filteredFinancials.expByCat).length > 0
-            ? Object.entries(filteredFinancials.expByCat).map(([k, v]) => [k, fmtBDT(Number(v))] as [string, string])
-            : [["No expenses in this period.", ""]],
-      },
-      {
-        title: "Revenue by Source",
-        rows:
-          Object.keys(filteredFinancials.revBySource).length > 0
-            ? Object.entries(filteredFinancials.revBySource).map(([k, v]) => [k, fmtBDT(Number(v))] as [string, string])
-            : [["No revenue in this period.", ""]],
-      },
-      {
-        title: "Materials by Supplier",
-        rows:
-          Object.keys(filteredFinancials.materialsBySupplier).length > 0
-            ? Object.entries(filteredFinancials.materialsBySupplier).map(([k, v]) => [k, fmtBDT(Number(v))] as [string, string])
-            : [["No material purchases in this period.", ""]],
-      },
-    ];
-  }
-
-  function shareholderRows(): [string, string, string][] {
-    if (filteredFinancials.shareholders.length === 0) return [["No shareholders found.", "", ""]];
-    return filteredFinancials.shareholders.map((s: any) => {
-      const pct = Number(s.effective_ownership_pct ?? s.ownership_pct ?? 0);
-      const count = Number(s.effective_share_count ?? s.share_count ?? 0);
-      return [s.name, count > 0 ? `${pct}% (${count} shares)` : `${pct}%`, fmtBDT(Number(s.invested))];
-    });
+    return `shareholder_report_${safeName}_${new Date().toISOString().slice(0, 10)}`;
   }
 
   function handleExportPDF() {
     if (!data) return;
     const doc = new jsPDF();
     const marginX = 14;
-    const pageHeight = doc.internal.pageSize.getHeight();
     let y = 18;
 
     doc.setFontSize(16);
     doc.text(reportAppName, marginX, y);
     y += 6;
     doc.setFontSize(10);
-    doc.text(`${reportAppSubtitle} — Financial Report`, marginX, y);
+    doc.text(`${reportAppSubtitle} — Shareholder Report`, marginX, y);
     y += 6;
     doc.setFontSize(11);
     doc.text(project?.name || "", marginX, y);
@@ -347,27 +208,6 @@ export function ReportsTab({ projectId }: { projectId: string }) {
     doc.setTextColor(0);
     y += 6;
 
-    for (const section of reportSections()) {
-      if (y > pageHeight - 40) {
-        doc.addPage();
-        y = 18;
-      }
-      autoTable(doc, {
-        startY: y,
-        head: [[section.title, "Amount (BDT)"]],
-        body: section.rows,
-        theme: "grid",
-        headStyles: { fillColor: [180, 140, 40] },
-        margin: { left: marginX, right: marginX },
-        styles: { fontSize: 9 },
-      });
-      y = (doc as any).lastAutoTable.finalY + 8;
-    }
-
-    if (y > pageHeight - 40) {
-      doc.addPage();
-      y = 18;
-    }
     autoTable(doc, {
       startY: y,
       head: [["Shareholder", "Ownership", "Total Invested"]],
@@ -384,25 +224,6 @@ export function ReportsTab({ projectId }: { projectId: string }) {
 
   async function handleExportDOCX() {
     if (!data) return;
-
-    const sectionBlocks = reportSections().flatMap((section) => [
-      new Paragraph({ text: section.title, heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 80 } }),
-      new DocxTable({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: section.rows.map(
-          ([label, amount]) =>
-            new TableRow({
-              children: [
-                new TableCell({ width: { size: 70, type: WidthType.PERCENTAGE }, children: [new Paragraph(label)] }),
-                new TableCell({
-                  width: { size: 30, type: WidthType.PERCENTAGE },
-                  children: [new Paragraph({ text: amount, alignment: AlignmentType.RIGHT })],
-                }),
-              ],
-            })
-        ),
-      }),
-    ]);
 
     const shRows = shareholderRows();
     const shareholderTable = new DocxTable({
@@ -427,14 +248,13 @@ export function ReportsTab({ projectId }: { projectId: string }) {
         {
           children: [
             new Paragraph({ text: reportAppName, heading: HeadingLevel.TITLE }),
-            new Paragraph({ text: `${reportAppSubtitle} — Financial Report`, spacing: { after: 120 } }),
+            new Paragraph({ text: `${reportAppSubtitle} — Shareholder Report`, spacing: { after: 120 } }),
             new Paragraph({ text: project?.name || "", heading: HeadingLevel.HEADING_1 }),
             new Paragraph({
               text: `Period: ${PERIOD_LABELS[timeFilter]}   ·   Generated: ${new Date().toLocaleDateString()}`,
               spacing: { after: 200 },
             }),
-            ...sectionBlocks,
-            new Paragraph({ text: "Shareholder Report", heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 80 } }),
+            new Paragraph({ text: "Shareholder Report", heading: HeadingLevel.HEADING_2, spacing: { before: 120, after: 80 } }),
             shareholderTable,
           ],
         },
@@ -557,130 +377,15 @@ export function ReportsTab({ projectId }: { projectId: string }) {
             {reportAppName} <span className="font-medium text-black">{reportAppSubtitle}</span>
           </h1>
         )}
-        <p className="text-sm text-black">Financial & Activity Report for: {project?.name}</p>
+        <p className="text-sm text-black">Shareholder Report for: {project?.name}</p>
         <p className="mt-0.5 text-xs text-black">Date Generated: {new Date().toLocaleDateString()}</p>
       </div>
 
       <section>
-        <h2 className="mb-4 font-display text-2xl font-semibold print:mb-2 print:text-base">Financial Formula Summary</h2>
+        <h2 className="mb-4 font-display text-2xl font-semibold print:mb-2 print:text-base">Shareholder Report</h2>
         {isLoading ? (
           <div className="text-center py-10 text-muted-foreground">Loading report data...</div>
-        ) : (
-          // md: alone isn't reliable here — a real print engine's usable page
-          // width (page size minus margins) commonly lands just under the md
-          // breakpoint, so without print:grid-cols-4 this silently falls back
-          // to one column on paper even though it's a tidy 4-across on screen.
-          <div className="grid gap-4 md:grid-cols-4 print:grid-cols-4 print:gap-2">
-            <StatCard
-              label="Total Money (Budget+Rev+Invest)"
-              value={fmtBDT(totalMoney)}
-              accent="green"
-            />
-            <StatCard
-              label="Deduct Money (Exp+Materials+Labor+Owner)"
-              value={fmtBDT(deductMoney)}
-              accent="red"
-            />
-            <StatCard
-              label="Gross Profit / Loss"
-              value={fmtBDT(profit)}
-              accent={profit >= 0 ? "green" : "red"}
-            />
-            <StatCard label="Remaining Balance" value={fmtBDT(net)} accent="gold" />
-          </div>
-        )}
-      </section>
-
-      {/* Breakdown Tables */}
-      <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-3 print:gap-2">
-        <div className="noir-panel p-5 overflow-x-auto no-scrollbar print:p-3">
-          <h3 className="mb-3 font-display text-lg font-semibold print:mb-1 print:text-sm">Expenses by Category</h3>
-          <table className="w-full text-sm">
-            <thead className="border-b border-border/60 bg-surface-2 text-left text-[11px] uppercase tracking-widest text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2">Category</th>
-                <th className="px-3 py-2 text-right">Total Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.keys(filteredFinancials.expByCat).length === 0 ? (
-                <tr>
-                  <td colSpan={2} className="px-3 py-6 text-center text-muted-foreground">
-                    No expenses in this period.
-                  </td>
-                </tr>
-              ) : (
-                Object.entries(filteredFinancials.expByCat).map(([cat, amt]) => (
-                  <tr key={cat} className="border-b border-border/40 last:border-0">
-                    <td className="px-3 py-2">{cat}</td>
-                    <td className="px-3 py-2 text-right font-medium">{fmtBDT(Number(amt))}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="noir-panel p-5 overflow-x-auto no-scrollbar print:p-3">
-          <h3 className="mb-3 font-display text-lg font-semibold print:mb-1 print:text-sm">Revenue by Source</h3>
-          <table className="w-full text-sm">
-            <thead className="border-b border-border/60 bg-surface-2 text-left text-[11px] uppercase tracking-widest text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2">Source</th>
-                <th className="px-3 py-2 text-right">Total Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.keys(filteredFinancials.revBySource).length === 0 ? (
-                <tr>
-                  <td colSpan={2} className="px-3 py-6 text-center text-muted-foreground">
-                    No revenue in this period.
-                  </td>
-                </tr>
-              ) : (
-                Object.entries(filteredFinancials.revBySource).map(([src, amt]) => (
-                  <tr key={src} className="border-b border-border/40 last:border-0">
-                    <td className="px-3 py-2">{src}</td>
-                    <td className="px-3 py-2 text-right font-medium">{fmtBDT(Number(amt))}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="noir-panel p-5 overflow-x-auto no-scrollbar print:p-3">
-          <h3 className="mb-3 font-display text-lg font-semibold print:mb-1 print:text-sm">Materials by Supplier</h3>
-          <table className="w-full text-sm">
-            <thead className="border-b border-border/60 bg-surface-2 text-left text-[11px] uppercase tracking-widest text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2">Supplier</th>
-                <th className="px-3 py-2 text-right">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.keys(filteredFinancials.materialsBySupplier).length === 0 ? (
-                <tr>
-                  <td colSpan={2} className="px-3 py-6 text-center text-muted-foreground">
-                    No material purchases in this period.
-                  </td>
-                </tr>
-              ) : (
-                Object.entries(filteredFinancials.materialsBySupplier).map(([sup, amt]) => (
-                  <tr key={sup} className="border-b border-border/40 last:border-0">
-                    <td className="px-3 py-2">{sup}</td>
-                    <td className="px-3 py-2 text-right font-medium">{fmtBDT(Number(amt))}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section>
-        <h2 className="mb-4 font-display text-2xl font-semibold print:mb-2 print:text-base">Shareholder Report</h2>
-        {filteredFinancials.shareholders.length === 0 ? (
+        ) : shareholders.length === 0 ? (
           <div className="noir-panel px-4 py-10 text-center text-muted-foreground">
             No shareholders found.
           </div>
@@ -690,7 +395,7 @@ export function ReportsTab({ projectId }: { projectId: string }) {
                 is far more compact on paper and is forced visible there
                 regardless of the lg: breakpoint (see its print:block). */}
             <div className="grid gap-3 lg:hidden print:hidden">
-              {filteredFinancials.shareholders.map((s: any) => {
+              {shareholders.map((s: any) => {
                 const pct = Number(s.effective_ownership_pct ?? s.ownership_pct ?? 0);
                 const count = Number(s.effective_share_count ?? s.share_count ?? 0);
                 return (
@@ -721,7 +426,7 @@ export function ReportsTab({ projectId }: { projectId: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredFinancials.shareholders.map((s: any) => {
+                  {shareholders.map((s: any) => {
                     const pct = Number(s.effective_ownership_pct ?? s.ownership_pct ?? 0);
                     const count = Number(s.effective_share_count ?? s.share_count ?? 0);
                     return (
@@ -748,8 +453,6 @@ export function ReportsTab({ projectId }: { projectId: string }) {
           </>
         )}
       </section>
-
-      {/* Shareholder Report section remains above */}
     </div>
   );
 }

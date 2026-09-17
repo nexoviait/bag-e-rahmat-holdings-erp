@@ -24,6 +24,7 @@ class MaterialTransactionResource extends JsonResource
             'carrying_cost' => $this->carrying_cost !== null ? (float) $this->carrying_cost : null,
             'supplier' => $this->supplier,
             'used_for' => $this->used_for,
+            'notes' => $this->notes,
             'receipt_path' => $this->receipt_path,
             'receipt_name' => $this->receipt_name,
             'receipt_mime' => $this->receipt_mime,

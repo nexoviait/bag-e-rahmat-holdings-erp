@@ -21,6 +21,7 @@ class MaterialTransaction extends Model
         'carrying_cost',
         'supplier',
         'used_for',
+        'notes',
         'receipt_path',
         'receipt_name',
         'receipt_mime',
