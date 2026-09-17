@@ -20,9 +20,16 @@ final class ConversationService
         private readonly ConversationRepositoryInterface $conversations,
     ) {}
 
+    /**
+     * The "see every conversation in the project" branch is super_admin-only
+     * — see ConversationPolicy's own docblock for why 'admin' lost this
+     * bypass. This check lives here (not just in the policy) because it's
+     * the thing that actually decides which SQL query runs, not merely
+     * whether one specific conversation is viewable.
+     */
     public function listForProject(int $projectId, User $actor): Collection
     {
-        return $actor->hasAnyRole(['super_admin', 'admin'])
+        return $actor->hasRole('super_admin')
             ? $this->conversations->listForProject($projectId)
             : $this->conversations->listForProjectAndUser($projectId, $actor->id);
     }

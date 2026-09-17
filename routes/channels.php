@@ -19,17 +19,19 @@ Broadcast::channel('chat.user.{userId}', function ($user, $userId) {
 
 // Per-conversation channel — message delivery, read receipts, and (as
 // whispers only, never a real broadcast event) typing indicators. Gated on
-// active participancy, with the same admin-sees-everything bypass as
-// ConversationPolicy — an admin auditing a project's chat can still open a
-// thread and watch it live, matching the confirmed CCTV/Documents-style
-// oversight model, even without their own participant row.
+// active participancy. Broadcast::channel callbacks are Reverb/Pusher's own
+// authorization mechanism — they never go through Laravel's Gate at all, so
+// Gate::before's super_admin bypass does NOT apply here automatically; it's
+// checked explicitly. 'admin' gets no bypass here (or in ConversationPolicy)
+// — see that policy's docblock for why chat visibility was tightened to
+// super_admin only.
 Broadcast::channel('chat.conversation.{conversationId}', function ($user, $conversationId) {
     $conversation = Conversation::find($conversationId);
     if (!$conversation) {
         return false;
     }
 
-    if ($user->hasAnyRole(['super_admin', 'admin'])) {
+    if ($user->hasRole('super_admin')) {
         return true;
     }
 
@@ -42,14 +44,17 @@ Broadcast::channel('chat.conversation.{conversationId}', function ($user, $conve
 // Presence channel — one per open Chat tab, gated on project membership. The
 // "green dot" online signal, separate from and complementary to
 // users.last_seen_at (which covers the "last seen at HH:MM" fallback for
-// someone who isn't currently subscribed).
+// someone who isn't currently subscribed). Same super_admin-only bypass as
+// the conversation channel above, for the same reason — an 'admin' with no
+// real reason to be in this project's chat shouldn't see who's active in it
+// either, even though this channel carries presence, not message content.
 Broadcast::channel('chat.project.{projectId}', function ($user, $projectId) {
     $project = Project::find($projectId);
     if (!$project) {
         return false;
     }
 
-    if (!$user->hasAnyRole(['super_admin', 'admin']) && !$user->projects->contains((int) $projectId)) {
+    if (!$user->hasRole('super_admin') && !$user->projects->contains((int) $projectId)) {
         return false;
     }
 

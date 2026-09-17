@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { AlertsBell } from "@/components/cctv/AlertsBell";
 import { ChatIncomingListener } from "@/components/chat/ChatIncomingListener";
 import { CallManager } from "@/components/chat/CallManager";
+import { unlockAudioOnFirstInteraction } from "@/lib/sound";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useSession();
@@ -63,6 +64,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     document.title = `${appName} - ${appSubtitle}`;
   }, [appName, appSubtitle, appFavicon]);
+
+  // Warms up the shared notification/ringtone AudioContext on the very first
+  // tap anywhere in the app — see unlockAudioOnFirstInteraction()'s own
+  // docblock for why this needs to happen this early, globally, rather than
+  // lazily whenever a sound first tries to play.
+  useEffect(() => {
+    unlockAudioOnFirstInteraction();
+  }, []);
 
   const roles = getUserRoles(user);
   const highestRole = roles[0] ?? "";

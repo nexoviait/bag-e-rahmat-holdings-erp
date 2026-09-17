@@ -7,16 +7,21 @@ use App\Models\User;
 use App\Modules\Chat\Support\ChatPermission;
 
 /**
- * Gate::before in AppServiceProvider bypasses every method here for
- * super_admin. 'admin' gets an explicit, deliberate bypass ONLY for the
- * read-side abilities (viewAny/view) — this is the confirmed product
- * decision that admins can see every project conversation, including
- * private 1:1 DMs, matching the existing CCTV/Documents trust model.
+ * Chat is private by design — Gate::before in AppServiceProvider is the ONLY
+ * blanket bypass here (super_admin), and every method below relies on that
+ * rather than re-granting it explicitly, specifically so it can never drift
+ * out of sync with a change there. 'admin' gets NO special visibility into
+ * conversations it isn't genuinely part of — unlike CCTV/Documents, a chat
+ * (including its 1:1 DMs) is between the people actually in it. This was a
+ * deliberately tighter call after the original "admin sees everything" draft
+ * turned out to have a real bug: a non-participant viewer (an admin who
+ * technically wasn't in a DM) got shown a conversation mislabeled after
+ * whichever participant happened to be first in the list — see
+ * ConversationList.tsx/MessageThread.tsx's otherParticipant lookups, which
+ * assumed the viewer was always one of exactly two people.
  *
- * It does NOT extend to writing: sendMessage/manageMembers/leave all require
- * genuine active participancy even for an admin, so admin visibility stays
- * oversight-only rather than letting an admin inject messages into (or
- * silently manage) a DM they were never actually part of.
+ * sendMessage/manageMembers/leave/initiateCall all require genuine active
+ * participancy for everyone except super_admin, same as before.
  */
 class ConversationPolicy
 {
@@ -26,7 +31,7 @@ class ConversationPolicy
             return false;
         }
 
-        if ($projectId === null || $user->hasAnyRole(['super_admin', 'admin'])) {
+        if ($projectId === null) {
             return true;
         }
 
@@ -37,10 +42,6 @@ class ConversationPolicy
     {
         if (!$user->can(ChatPermission::VIEW)) {
             return false;
-        }
-
-        if ($user->hasAnyRole(['super_admin', 'admin'])) {
-            return true;
         }
 
         return $this->isActiveParticipant($user, $conversation);
@@ -86,15 +87,16 @@ class ConversationPolicy
         return $this->isActiveParticipant($user, $conversation);
     }
 
-    /** Rename/avatar/add-remove-members — group-admin only (never for a direct conversation). */
+    /**
+     * Rename/avatar/add-remove-members — group-admin only (never for a direct
+     * conversation). No 'admin' bypass here either, for the same reason as
+     * view() above: managing a group's membership without being able to see
+     * its messages at all would be a strange, inconsistent half-permission.
+     */
     public function manageMembers(User $user, Conversation $conversation): bool
     {
         if ($conversation->type !== 'group') {
             return false;
-        }
-
-        if ($user->hasAnyRole(['super_admin', 'admin'])) {
-            return true;
         }
 
         return $conversation->participants()

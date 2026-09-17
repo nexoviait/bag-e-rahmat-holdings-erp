@@ -27,6 +27,32 @@ function getContext(): AudioContext | null {
   }
 }
 
+/**
+ * Primes the shared AudioContext the moment the user first taps/clicks/types
+ * anywhere in the app. This matters a lot in practice: a ringtone or message
+ * "ding" is triggered by an incoming WebSocket event, which has NO user
+ * gesture anywhere in its call stack. Mobile browsers (iOS Safari especially,
+ * increasingly Android Chrome too) can permanently refuse to actually start
+ * an AudioContext's audio graph unless resume() is called from directly
+ * inside a real gesture handler — calling it lazily, for the first time,
+ * right when a ring needs to play (as this module did before) can end up
+ * silently producing no sound at all for the rest of the session. Since
+ * getContext() always reuses the one shared instance, warming it up here
+ * once is enough to make every later sound in this file actually audible.
+ * Call this once, early, from a component mounted for the lifetime of the
+ * app (see AppShell.tsx) — safe to call redundantly, it removes its own
+ * listeners after the first attempt.
+ */
+export function unlockAudioOnFirstInteraction() {
+  if (typeof window === "undefined") return;
+  const events: (keyof WindowEventMap)[] = ["pointerdown", "touchend", "keydown"];
+  const unlock = () => {
+    getContext();
+    events.forEach((e) => window.removeEventListener(e, unlock));
+  };
+  events.forEach((e) => window.addEventListener(e, unlock, { passive: true }));
+}
+
 /** One sine tone, `durationMs` long, fading out at the end to avoid a click/pop. */
 function tone(ctx: AudioContext, freq: number, startAt: number, durationMs: number, volume = 0.15) {
   const osc = ctx.createOscillator();

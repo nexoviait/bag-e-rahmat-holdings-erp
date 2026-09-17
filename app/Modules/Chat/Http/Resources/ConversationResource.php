@@ -22,9 +22,19 @@ class ConversationResource extends JsonResource
         // OTHER participant's name/avatar, mirroring how every DM app works.
         // Falls back to the conversation's own (null) name/avatar for a group,
         // or when participants weren't eager-loaded (e.g. a bare create() response).
+        //
+        // $isOversightView: the viewer isn't actually one of the two people in
+        // this DM at all (super_admin's chat-oversight access — see
+        // ConversationPolicy). In that case "the other participant" is
+        // ambiguous: BOTH participants satisfy "!= authUserId", and the old
+        // firstWhere() below picked whichever came first, silently hiding the
+        // second person and mislabeling the conversation after only one of
+        // them. Handled as its own branch further down instead.
         $otherParticipant = null;
+        $isOversightView = false;
         if ($this->type === 'direct' && $participants) {
-            $otherParticipant = $participants->firstWhere('user_id', '!=', $authUserId);
+            $isOversightView = !$participants->contains('user_id', $authUserId);
+            $otherParticipant = $isOversightView ? null : $participants->firstWhere('user_id', '!=', $authUserId);
         }
 
         $displayName = $this->name;
@@ -32,6 +42,14 @@ class ConversationResource extends JsonResource
         if ($otherParticipant && $otherParticipant->relationLoaded('user') && $otherParticipant->user) {
             $displayName = $otherParticipant->user->name;
             $displayAvatar = $otherParticipant->user->avatar_path;
+        } elseif ($isOversightView && $participants) {
+            $names = $participants
+                ->filter(fn ($p) => $p->relationLoaded('user') && $p->user)
+                ->map(fn ($p) => $p->user->name)
+                ->all();
+            if ($names) {
+                $displayName = implode(' & ', $names);
+            }
         }
 
         $myParticipant = $participants
