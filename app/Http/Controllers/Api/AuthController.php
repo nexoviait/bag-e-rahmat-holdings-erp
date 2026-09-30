@@ -28,9 +28,11 @@ class AuthController extends Controller
             }
 
             if (!$user->is_active) {
-                throw ValidationException::withMessages([
-                    'email' => ['This account has been deactivated. Please contact an administrator.'],
-                ]);
+                $message = $user->hasRole('nominee')
+                    ? 'Your nominee account is pending Super Admin approval. Please check back later.'
+                    : 'This account has been deactivated. Please contact an administrator.';
+
+                throw ValidationException::withMessages(['email' => [$message]]);
             }
 
             $token = $user->createToken('auth_token')->plainTextToken;

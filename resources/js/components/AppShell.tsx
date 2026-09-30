@@ -19,6 +19,10 @@ import {
   Save,
   Loader2,
   Video,
+  Sun,
+  Moon,
+  Briefcase,
+  Landmark,
 } from "lucide-react";
 import { useSession, useIsAdmin, useHasPermission, getUserRoles } from "@/lib/session";
 import { roleLabels } from "@/lib/format";
@@ -28,11 +32,28 @@ import { AlertsBell } from "@/components/cctv/AlertsBell";
 import { ChatIncomingListener } from "@/components/chat/ChatIncomingListener";
 import { CallManager } from "@/components/chat/CallManager";
 import { unlockAudioOnFirstInteraction } from "@/lib/sound";
+import { useTheme } from "@/lib/theme";
+
+function ThemeToggleButton() {
+  const { theme, toggleTheme } = useTheme();
+  return (
+    <button
+      onClick={toggleTheme}
+      title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+      aria-label="Toggle color theme"
+      className="rounded-md p-2 text-muted-foreground transition hover:bg-sidebar-accent hover:text-foreground cursor-pointer"
+    >
+      {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+    </button>
+  );
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useSession();
   const isAdmin = useIsAdmin();
   const canViewCctv = useHasPermission("cctv.view");
+  const canApplyForJobs = useHasPermission("job_applications.view");
+  const canViewProperty = useHasPermission("properties.view");
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -91,6 +112,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     { to: "/dashboard", label: "Overview", icon: LayoutDashboard },
     { to: "/projects", label: "Projects", icon: FolderKanban },
     ...(canViewCctv ? [{ to: "/monitoring", label: "Live Monitoring", icon: Video }] : []),
+    // Company-wide, unlike every other tab here — not tied to a project.
+    ...(canApplyForJobs ? [{ to: "/job-application", label: "Job Application", icon: Briefcase }] : []),
+    ...(canViewProperty ? [{ to: "/my-property", label: "My Property", icon: Landmark }] : []),
   ];
 
   return (
@@ -209,6 +233,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
             </div>
+            <ThemeToggleButton />
             <AlertsBell />
             <button
               onClick={handleSignOut}
@@ -219,7 +244,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           <div className="mt-3 border-t border-sidebar-border/60 pt-3 text-center text-[10px] text-muted-foreground">
-            Developed by <span className="font-medium text-gold">Nexovia IT</span>
+            Developed by{" "}
+            <a
+              href="https://nexoviait.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-gold hover:underline"
+            >
+              Nexovia IT
+            </a>
           </div>
         </div>
       </aside>
@@ -239,6 +272,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </Link>
         <div className="flex items-center gap-1">
+          <ThemeToggleButton />
           <AlertsBell />
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -357,7 +391,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
               <div className="mt-3 border-t border-sidebar-border/60 pt-3 text-center text-[10px] text-muted-foreground">
-                Developed by <span className="font-medium text-gold">Nexovia IT</span>
+                Developed by{" "}
+            <a
+              href="https://nexoviait.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-gold hover:underline"
+            >
+              Nexovia IT
+            </a>
               </div>
             </div>
           </aside>
@@ -608,6 +650,10 @@ export function AdminNavTabs() {
     { to: "/admin/users", label: "User Accounts" },
     { to: "/admin/assignments", label: "Project Access" },
     { to: "/admin/roles", label: "Roles & Permissions" },
+    { to: "/admin/nominees", label: "Nominees" },
+    { to: "/admin/applications", label: "Applications" },
+    { to: "/admin/job-applications", label: "Job Applications" },
+    { to: "/admin/properties", label: "Properties" },
   ];
 
   return (

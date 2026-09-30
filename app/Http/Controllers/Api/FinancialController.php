@@ -34,6 +34,21 @@ class FinancialController extends Controller
         };
     }
 
+    /**
+     * Paying money OUT to an owner/shareholder is a more sensitive action
+     * than logging ordinary revenue/expenses, so unlike the rest of this
+     * controller's types it's restricted to admins regardless of who
+     * otherwise holds financials.* permissions.
+     */
+    private function ownerPaymentsDenied(Request $request, string $type)
+    {
+        if ($type === 'owner_payments' && !$request->user()->hasAnyRole(['super_admin', 'admin'])) {
+            return response()->json(['message' => 'Only admins can view or manage owner payments.'], 403);
+        }
+
+        return null;
+    }
+
     public function index(Request $request, $type)
     {
         try {
@@ -45,6 +60,9 @@ class FinancialController extends Controller
             }
             if (!$request->user()->can('financials.view')) {
                 return response()->json(['message' => 'You do not have permission to view financials.'], 403);
+            }
+            if ($resp = $this->ownerPaymentsDenied($request, $type)) {
+                return $resp;
             }
 
             $items = $model::where('project_id', $request->project_id)
@@ -123,6 +141,9 @@ class FinancialController extends Controller
             if (!$request->user()->can('financials.create')) {
                 return response()->json(['message' => 'You do not have permission to add financial entries.'], 403);
             }
+            if ($resp = $this->ownerPaymentsDenied($request, $type)) {
+                return $resp;
+            }
 
             $receiptAttrs = $this->handleReceiptUpload($request, $type);
 
@@ -161,6 +182,9 @@ class FinancialController extends Controller
             }
             if (!$request->user()->can('financials.edit')) {
                 return response()->json(['message' => 'You do not have permission to edit financial entries.'], 403);
+            }
+            if ($resp = $this->ownerPaymentsDenied($request, $type)) {
+                return $resp;
             }
 
             $validated = $request->validate([
@@ -221,6 +245,9 @@ class FinancialController extends Controller
             if (!$request->user()->can('financials.delete')) {
                 return response()->json(['message' => 'You do not have permission to delete financial entries.'], 403);
             }
+            if ($resp = $this->ownerPaymentsDenied($request, $type)) {
+                return $resp;
+            }
 
             $projectId = $item->project_id;
             $amount = $item->amount;
@@ -262,6 +289,9 @@ class FinancialController extends Controller
             }
             if (!$request->user()->can('financials.view')) {
                 return response()->json(['message' => 'You do not have permission to view receipts.'], 403);
+            }
+            if ($resp = $this->ownerPaymentsDenied($request, $type)) {
+                return $resp;
             }
 
             if (!$item->receipt_path || !Storage::disk('local')->exists($item->receipt_path)) {

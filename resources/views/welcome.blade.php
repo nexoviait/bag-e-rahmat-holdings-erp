@@ -5,6 +5,18 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Bag E Rahmat Holdings ERP</title>
 
+        <!-- Applies the saved theme before first paint so light-mode users
+             don't see a flash of the dark theme while the JS bundle loads. -->
+        <script>
+            (function () {
+                try {
+                    if (localStorage.getItem('theme') === 'light') {
+                        document.documentElement.classList.add('light');
+                    }
+                } catch (e) {}
+            })();
+        </script>
+
         <!-- Google Fonts: Space Grotesk & DM Sans -->
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

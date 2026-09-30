@@ -38,6 +38,10 @@ class DatabaseSeeder extends Seeder
             'materials.view', 'materials.create', 'materials.edit', 'materials.delete',
             'labor.view', 'labor.create', 'labor.edit', 'labor.delete',
             'chat.view', 'chat.send', 'chat.groups.create', 'chat.calls.initiate',
+            'nominees.view', 'nominees.create', 'nominees.approve', 'nominees.edit', 'nominees.delete',
+            'applications.view', 'applications.create', 'applications.approve', 'applications.delete',
+            'job_applications.view', 'job_applications.create', 'job_applications.review', 'job_applications.delete',
+            'properties.view', 'properties.create', 'properties.delete', 'properties.view_all', 'properties.approve',
         ];
 
         foreach ($permissions as $p) {
@@ -49,12 +53,28 @@ class DatabaseSeeder extends Seeder
         // permission that role should have must be listed here, even ones granted
         // to it elsewhere (e.g. by a migration), or re-running this seeder silently
         // strips them back out.
+        // super_admin gets every permission including nominees.approve/edit/delete
+        // and applications.approve/delete; admin is deliberately narrower here —
+        // approving a nominee activates a real login, and approving a share
+        // request directly rewrites ownership records, so those gates stay
+        // stricter than the rest of admin tooling in this app. Reviewing a job
+        // application isn't ownership-changing, so admin keeps full control there.
+        $adminPermissions = array_values(array_diff($permissions, [
+            'nominees.approve', 'nominees.edit', 'nominees.delete',
+            'applications.approve', 'applications.delete',
+            'properties.approve',
+        ]));
+
         $roleMap = [
             'super_admin' => $permissions,
-            'admin' => $permissions,
+            'admin' => $adminPermissions,
             'manager' => [
                 'cctv.view', 'cctv.devices.view', 'cctv.snapshot', 'cctv.logs.view',
                 'chat.view', 'chat.send', 'chat.groups.create', 'chat.calls.initiate',
+                'nominees.view', 'nominees.create',
+                'applications.view', 'applications.create',
+                'job_applications.view', 'job_applications.create',
+                'properties.view', 'properties.create',
             ],
             'user' => [
                 'projects.view', 'projects.create', 'projects.edit',
@@ -65,6 +85,20 @@ class DatabaseSeeder extends Seeder
                 'materials.view', 'materials.create', 'materials.edit', 'materials.delete',
                 'labor.view', 'labor.create', 'labor.edit', 'labor.delete',
                 'chat.view', 'chat.send', 'chat.groups.create', 'chat.calls.initiate',
+                'nominees.view', 'nominees.create',
+                'applications.view', 'applications.create',
+                'job_applications.view', 'job_applications.create',
+                'properties.view', 'properties.create',
+            ],
+            // A nominee's own account once approved — view-only across the
+            // project they represent a shareholder in (see NomineeController).
+            // They can still apply for a job themselves (a personal action,
+            // unrelated to what they represent).
+            'nominee' => [
+                'financials.view', 'shareholders.view', 'documents.view',
+                'reports.view', 'materials.view', 'labor.view',
+                'job_applications.view', 'job_applications.create',
+                'properties.view', 'properties.create',
             ],
         ];
 

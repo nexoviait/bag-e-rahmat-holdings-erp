@@ -1,22 +1,25 @@
 import React, { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useCanEditFinancials, useIsAdmin, useSession } from "@/lib/session";
+import { useCanEditFinancials, useHasPermission, useIsAdmin, useSession } from "@/lib/session";
 import { fmtBDT, fmtDate } from "@/lib/format";
 import { DatePicker } from "@/components/DatePicker";
-import { Plus, Trash2, Edit2, X, Loader2, AlertCircle, PieChart, Wallet, DollarSign, ArrowDownRight } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Loader2, AlertCircle, PieChart, Wallet, DollarSign, ArrowDownRight, UserRound } from "lucide-react";
 import { toast } from "sonner";
+import { NomineesModal } from "@/components/NomineesModal";
 
 export function ShareholdersTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
   const isAdmin = useIsAdmin();
   const canEdit = useCanEditFinancials();
+  const canViewNominees = useHasPermission("nominees.view");
   const { user } = useSession();
 
   const [openSh, setOpenSh] = useState(false);
   const [editingSh, setEditingSh] = useState<any | null>(null);
   const [investFor, setInvestFor] = useState<{ id: number | string; name: string } | null>(null);
   const [editingInvest, setEditingInvest] = useState<any | null>(null);
+  const [nomineesFor, setNomineesFor] = useState<{ id: number | string; name: string } | null>(null);
 
   const shareholders = useQuery({
     queryKey: ["shareholders", projectId],
@@ -30,14 +33,6 @@ export function ShareholdersTab({ projectId }: { projectId: string }) {
     queryKey: ["shareholder_investments", projectId],
     queryFn: async () => {
       const res = await api.get(`/shareholder-investments?project_id=${projectId}`);
-      return res.data;
-    },
-  });
-
-  const ownerPayments = useQuery({
-    queryKey: ["owner_payments", projectId],
-    queryFn: async () => {
-      const res = await api.get(`/financials/owner_payments?project_id=${projectId}`);
       return res.data;
     },
   });
@@ -61,11 +56,6 @@ export function ShareholdersTab({ projectId }: { projectId: string }) {
   );
   const totalOwnership = (shareholders.data ?? []).reduce(
     (s: number, sh: any) => s + Number(sh.effective_ownership_pct ?? sh.ownership_pct ?? 0),
-    0
-  );
-
-  const totalOwnerPayouts = (ownerPayments.data ?? []).reduce(
-    (sum: number, op: any) => sum + Number(op.amount),
     0
   );
 
@@ -99,32 +89,66 @@ export function ShareholdersTab({ projectId }: { projectId: string }) {
   // Non-Admin User Personal Overview View
   if (!isAdmin && shareholders.data && shareholders.data.length > 0) {
     const mySh = shareholders.data.find((s: any) => String(s.user_id) === String(user?.id)) ?? shareholders.data[0];
-    const myPaid = totalByShareholder(mySh.id);
 
-    const pct = Number(mySh.effective_ownership_pct ?? mySh.ownership_pct ?? 0);
-    const count = Number(mySh.effective_share_count ?? mySh.share_count ?? 0);
+    // A nominee sees the shareholder's FULL breakdown below (same numbers the
+    // shareholder themselves would see) — nomineeFraction only additionally
+    // shows their own slice of each figure, never replaces the real one (see
+    // User::nomineeSharePercentage()).
+    const isNomineeView = mySh.nominee_share_pct != null;
+    const nomineeFraction = isNomineeView ? Number(mySh.nominee_share_pct) / 100 : 1;
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const shareholderPct = Number(mySh.effective_ownership_pct ?? mySh.ownership_pct ?? 0);
+    const shareholderCount = Number(mySh.effective_share_count ?? mySh.share_count ?? 0);
+    const pct = round2(shareholderPct);
+    const count = round2(shareholderCount);
+    const myPaid = totalByShareholder(mySh.id);
 
     let myTotalPrice = 0;
     if (projBudget > 0) {
       if (mySh.share_type === "share_count" && projTotalShares > 0) {
-        myTotalPrice = (count / projTotalShares) * projBudget;
-      } else if (pct > 0) {
-        myTotalPrice = (pct / 100) * projBudget;
+        myTotalPrice = (shareholderCount / projTotalShares) * projBudget;
+      } else if (shareholderPct > 0) {
+        myTotalPrice = (shareholderPct / 100) * projBudget;
       }
     } else if (mySh.total_agreed_amount) {
       myTotalPrice = Number(mySh.total_agreed_amount);
     }
 
     const myRemaining = Math.max(0, myTotalPrice - myPaid);
+    // Shows the nominee's own slice of a figure alongside the shareholder's
+    // full number in a card's sub-line, rather than replacing it.
+    const nomineeHint = (value: number) =>
+      isNomineeView ? `Your ${mySh.nominee_share_pct}% share: ${fmtBDT(value * nomineeFraction)}` : null;
 
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="font-display text-2xl font-semibold">My Investment & Equity Profile</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Personal investor breakdown for <span className="font-medium text-foreground">{mySh.name}</span>.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="font-display text-2xl font-semibold">My Investment & Equity Profile</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Personal investor breakdown for <span className="font-medium text-foreground">{mySh.name}</span>.
+              {isNomineeView && (
+                <>
+                  {" "}Your nominated share: {mySh.nominee_share_pct}% of this ={" "}
+                  <span className="font-medium text-gold">{round2(pct * nomineeFraction)}%</span>.
+                </>
+              )}
+            </p>
+          </div>
+          {canViewNominees && (
+            <button
+              onClick={() => setNomineesFor({ id: mySh.id, name: mySh.name })}
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-4 py-2 text-sm font-medium text-muted-foreground transition hover:border-gold/50 hover:text-gold cursor-pointer"
+            >
+              <UserRound className="h-4 w-4" /> Nominees
+            </button>
+          )}
         </div>
+
+        {canViewNominees && nomineesFor && (
+          <NomineesModal shareholder={nomineesFor} onClose={() => setNomineesFor(null)} />
+        )}
 
         {/* 4 Stat Cards for Non-Admin User */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -138,6 +162,7 @@ export function ShareholdersTab({ projectId }: { projectId: string }) {
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
               {count > 0 ? `(${count} Shares)` : "Equity Allocation"}
+              {isNomineeView && ` · Your share: ${round2(pct * nomineeFraction)}%`}
             </div>
           </div>
 
@@ -149,7 +174,7 @@ export function ShareholdersTab({ projectId }: { projectId: string }) {
             <div className="mt-3 font-display text-3xl font-bold text-foreground">
               {fmtBDT(myTotalPrice)}
             </div>
-            <div className="mt-1 text-xs text-muted-foreground">Agreed Share Value</div>
+            <div className="mt-1 text-xs text-muted-foreground">{nomineeHint(myTotalPrice) ?? "Agreed Share Value"}</div>
           </div>
 
           <div className="noir-panel p-5">
@@ -160,7 +185,7 @@ export function ShareholdersTab({ projectId }: { projectId: string }) {
             <div className="mt-3 font-display text-3xl font-bold text-[color:var(--success)]">
               {fmtBDT(myPaid)}
             </div>
-            <div className="mt-1 text-xs text-muted-foreground">Injected Capital</div>
+            <div className="mt-1 text-xs text-muted-foreground">{nomineeHint(myPaid) ?? "Injected Capital"}</div>
           </div>
 
           <div className="noir-panel p-5">
@@ -171,7 +196,7 @@ export function ShareholdersTab({ projectId }: { projectId: string }) {
             <div className="mt-3 font-display text-3xl font-bold text-foreground">
               {fmtBDT(myRemaining)}
             </div>
-            <div className="mt-1 text-xs text-muted-foreground">Outstanding Balance</div>
+            <div className="mt-1 text-xs text-muted-foreground">{nomineeHint(myRemaining) ?? "Outstanding Balance"}</div>
           </div>
         </div>
 
@@ -397,17 +422,27 @@ export function ShareholdersTab({ projectId }: { projectId: string }) {
                 </div>
               </div>
 
-              {canEdit && (
-                <button
-                  onClick={() => {
-                    setEditingInvest(null);
-                    setInvestFor({ id: s.id, name: s.name });
-                  }}
-                  className="w-full mt-2 py-2 rounded-lg border border-gold/40 bg-gold/10 hover:bg-gold hover:text-slate-950 text-gold text-xs font-semibold transition cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Log Investment
-                </button>
-              )}
+              <div className="mt-2 flex items-center gap-2">
+                {canEdit && (
+                  <button
+                    onClick={() => {
+                      setEditingInvest(null);
+                      setInvestFor({ id: s.id, name: s.name });
+                    }}
+                    className="flex-1 py-2 rounded-lg border border-gold/40 bg-gold/10 hover:bg-gold hover:text-slate-950 text-gold text-xs font-semibold transition cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Log Investment
+                  </button>
+                )}
+                {canViewNominees && (
+                  <button
+                    onClick={() => setNomineesFor({ id: s.id, name: s.name })}
+                    className="flex-1 py-2 rounded-lg border border-border bg-surface-2 hover:border-gold/50 text-muted-foreground hover:text-gold text-xs font-semibold transition cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <UserRound className="h-3.5 w-3.5" /> Nominees
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
@@ -557,6 +592,9 @@ export function ShareholdersTab({ projectId }: { projectId: string }) {
           initialData={editingInvest}
           onClose={() => setEditingInvest(null)}
         />
+      )}
+      {canViewNominees && nomineesFor && (
+        <NomineesModal shareholder={nomineesFor} onClose={() => setNomineesFor(null)} />
       )}
     </>
   );

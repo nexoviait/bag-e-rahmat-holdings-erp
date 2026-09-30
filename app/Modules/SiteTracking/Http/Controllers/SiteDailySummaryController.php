@@ -51,7 +51,13 @@ class SiteDailySummaryController extends SiteTrackingController
 
             $expenses = (float) $expenseRows->sum('amount');
             $revenue = (float) $revenueRows->sum('amount');
-            $materialsCost = (float) $materialRows->where('type', 'in')->sum('total_cost');
+            // total_cost alone would silently drop transportation/carrying
+            // costs from the day's materials total — those are stored as
+            // their own columns (see MaterialTransactionData) but still count
+            // toward the all-in cost shown here.
+            $materialsCost = (float) $materialRows->where('type', 'in')->sum(
+                fn ($r) => (float) ($r->total_cost ?? 0) + (float) ($r->transportation_cost ?? 0) + (float) ($r->carrying_cost ?? 0)
+            );
             $laborCost = (float) $laborRows->sum('total_cost');
 
             $timeline = collect()

@@ -68,19 +68,30 @@ export function OverviewTab({ projectId }: { projectId: string }) {
     (s: any) => String(s.user_id) === String(user?.id)
   ) ?? (shareholders ?? [])[0];
 
-  const pct = Number(mySh?.effective_ownership_pct ?? mySh?.ownership_pct ?? 0);
-  const count = Number(mySh?.effective_share_count ?? mySh?.share_count ?? 0);
+  const shareholderPct = Number(mySh?.effective_ownership_pct ?? mySh?.ownership_pct ?? 0);
+  const shareholderCount = Number(mySh?.effective_share_count ?? mySh?.share_count ?? 0);
   const totalShares = Number(project?.total_shareholders ?? 0);
+
+  // A nominee sees the shareholder's FULL breakdown (same numbers the
+  // shareholder themselves would see below) — nomineeFraction is only used
+  // to additionally show their own slice of it alongside, never to replace
+  // the shareholder's real figures (see User::nomineeSharePercentage()).
+  const isNomineeView = mySh?.nominee_share_pct != null;
+  const nomineeFraction = isNomineeView ? Number(mySh.nominee_share_pct) / 100 : 1;
+
+  const pct = shareholderPct;
+  const count = shareholderCount;
   // Use the exact share_count / totalShares ratio for share_count-type holders instead of the
   // 2-decimal-rounded effective_ownership_pct, which introduces real currency drift at scale.
   const shareRatio =
-    mySh?.share_type === "share_count" && totalShares > 0 && count > 0
-      ? count / totalShares
-      : pct > 0
-      ? pct / 100
+    mySh?.share_type === "share_count" && totalShares > 0 && shareholderCount > 0
+      ? shareholderCount / totalShares
+      : shareholderPct > 0
+      ? shareholderPct / 100
       : 1;
 
-  // Personal logged investments for this shareholder
+  // Personal logged investments for this shareholder (the shareholder's own,
+  // full amount — see nomineeFraction note above).
   const myLoggedInvestments = (investments ?? [])
     .filter((inv: any) => String(inv.shareholder_id) === String(mySh?.id))
     .reduce((sum: number, inv: any) => sum + Number(inv.amount), 0);
@@ -128,6 +139,13 @@ export function OverviewTab({ projectId }: { projectId: string }) {
     .map(([month, amount]) => ({ month, amount }));
 
   const goldColors = ["#c9a84c", "#e8c473", "#8b7331", "#f0d78c", "#a68938", "#d6b862"];
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  // Shows the nominee's own slice of a divided-view figure alongside the
+  // shareholder's full number, rather than replacing it — see the
+  // isNomineeView note above.
+  const nomineeHint = (value: number): string | undefined =>
+    isDividedView && isNomineeView ? `Your ${mySh.nominee_share_pct}% share: ${fmtBDT(value * nomineeFraction)}` : undefined;
 
   return (
     <>
@@ -138,7 +156,14 @@ export function OverviewTab({ projectId }: { projectId: string }) {
               Shareholder Equity View
             </div>
             <div className="text-sm text-foreground mt-0.5">
-              Showing breakdown for <span className="font-semibold text-gold">{mySh.name}</span> ({pct}% Equity{count > 0 ? ` · ${count} Shares` : ""})
+              Showing breakdown for <span className="font-semibold text-gold">{mySh.name}</span>
+              {" "}({round2(pct)}% Equity{count > 0 ? ` · ${count} Shares` : ""})
+              {isNomineeView && (
+                <>
+                  {" "}— your nominated share: {mySh.nominee_share_pct}% of this ={" "}
+                  <span className="font-semibold text-gold">{round2(pct * nomineeFraction)}% Equity</span>
+                </>
+              )}
             </div>
           </div>
 
@@ -151,7 +176,7 @@ export function OverviewTab({ projectId }: { projectId: string }) {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              My Divided Share ({pct}%)
+              My Divided Share ({round2(pct)}%)
             </button>
             <button
               onClick={() => setViewMode("full")}
@@ -171,41 +196,47 @@ export function OverviewTab({ projectId }: { projectId: string }) {
         <StatCard
           label={isDividedView ? "My Share Budget" : "Project Budget"}
           value={fmtBDT(projectBudget)}
-          hint={isDividedView ? `${pct}% of total budget` : undefined}
+          hint={isDividedView ? nomineeHint(projectBudget) ?? `${round2(pct)}% of total budget` : undefined}
         />
         <StatCard
           label={isDividedView ? "My Revenue Share" : "Revenue"}
           value={fmtBDT(revenue)}
           accent="green"
+          hint={nomineeHint(revenue)}
         />
         <StatCard
           label={isDividedView ? "My Expense Share" : "Expenses"}
           value={fmtBDT(expenses)}
           accent="red"
+          hint={nomineeHint(expenses)}
         />
         <StatCard
           label={isDividedView ? "My Materials Cost" : "Materials Cost"}
           value={fmtBDT(materialsCost)}
           accent="red"
+          hint={nomineeHint(materialsCost)}
         />
         <StatCard
           label={isDividedView ? "My Labor Cost" : "Labor Cost"}
           value={fmtBDT(laborCost)}
           accent="red"
+          hint={nomineeHint(laborCost)}
         />
         <StatCard
           label={isDividedView ? "My Owner Payments" : "Owner Payments"}
           value={fmtBDT(owner)}
+          hint={nomineeHint(owner)}
         />
         <StatCard
           label={isDividedView ? "My Paid Investment" : "Investments"}
           value={fmtBDT(invest)}
+          hint={nomineeHint(invest)}
         />
         <StatCard
           label={isDividedView ? "My Net Cash Balance" : "Net Cash Balance"}
           value={fmtBDT(netCashBalance)}
           accent="gold"
-          hint={`Profit Share: ${fmtBDT(profit)}`}
+          hint={isDividedView && isNomineeView ? `Your ${mySh.nominee_share_pct}% share: ${fmtBDT(netCashBalance * nomineeFraction)}` : `Profit Share: ${fmtBDT(profit)}`}
         />
       </div>
 

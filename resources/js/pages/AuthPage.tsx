@@ -165,7 +165,15 @@ export function AuthPage() {
         </div>
 
         <p className="mt-6 text-center text-[11px] text-muted-foreground">
-          Developed by <span className="font-medium text-gold">Nexovia IT</span>
+          Developed by{" "}
+          <a
+            href="https://nexoviait.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-gold hover:underline"
+          >
+            Nexovia IT
+          </a>
         </p>
       </div>
     </div>

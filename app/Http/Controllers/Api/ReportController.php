@@ -14,10 +14,21 @@ use App\Models\ActivityLog;
 use App\Models\MaterialTransaction;
 use App\Models\LaborLog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class ReportController extends Controller
 {
+    // transportation_cost/carrying_cost live in their own columns (see
+    // MaterialTransactionData) so a report can break them out individually,
+    // but every "materials cost" total here is meant to be the all-in figure.
+    private function materialsAllInCost($query): float
+    {
+        return (float) $query
+            ->where('type', MaterialTransaction::TYPE_IN)
+            ->sum(DB::raw('COALESCE(total_cost, 0) + COALESCE(transportation_cost, 0) + COALESCE(carrying_cost, 0)'));
+    }
+
     public function dashboardTotals(Request $request)
     {
         try {
@@ -36,9 +47,7 @@ class ReportController extends Controller
             $expenses = Expense::whereIn('project_id', $projectIds)->sum('amount');
             $payments = OwnerPayment::whereIn('project_id', $projectIds)->sum('amount');
             $investments = ShareholderInvestment::whereIn('project_id', $projectIds)->sum('amount');
-            $materialsCost = MaterialTransaction::whereIn('project_id', $projectIds)
-                ->where('type', MaterialTransaction::TYPE_IN)
-                ->sum('total_cost');
+            $materialsCost = $this->materialsAllInCost(MaterialTransaction::whereIn('project_id', $projectIds));
             $laborCost = LaborLog::whereIn('project_id', $projectIds)->sum('total_cost');
 
             $recentLogs = ActivityLog::whereIn('project_id', $projectIds)
@@ -74,9 +83,7 @@ class ReportController extends Controller
             $e = Expense::where('project_id', $projectId)->get();
             $o = OwnerPayment::where('project_id', $projectId)->get();
             $si = ShareholderInvestment::where('project_id', $projectId)->get();
-            $materialsCost = MaterialTransaction::where('project_id', $projectId)
-                ->where('type', MaterialTransaction::TYPE_IN)
-                ->sum('total_cost');
+            $materialsCost = $this->materialsAllInCost(MaterialTransaction::where('project_id', $projectId));
             $laborCost = LaborLog::where('project_id', $projectId)->sum('total_cost');
 
             return response()->json([

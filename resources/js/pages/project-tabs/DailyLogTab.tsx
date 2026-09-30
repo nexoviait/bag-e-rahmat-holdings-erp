@@ -398,7 +398,12 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
                         )}
                         {canDeleteMaterials && (
                           <button
-                            onClick={() => deleteTransaction.mutate(r.id)}
+                            onClick={() => {
+                              const kind = r.type === "in" ? "Material In" : "Material Out";
+                              if (confirm(`Delete this ${kind} entry for "${r.material_name}"? This cannot be undone.`)) {
+                                deleteTransaction.mutate(r.id);
+                              }
+                            }}
                             className="text-muted-foreground hover:text-destructive cursor-pointer"
                             aria-label="Delete transaction"
                           >
@@ -449,7 +454,7 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
                       )}
                       {canDeleteLabor && (
                         <button
-                          onClick={() => deleteLabor.mutate(r.id)}
+                          onClick={() => confirm(`Delete this labor entry (${r.headcount} × ${r.labor_type})? This cannot be undone.`) && deleteLabor.mutate(r.id)}
                           className="text-muted-foreground hover:text-destructive cursor-pointer"
                           aria-label="Delete labor entry"
                         >
@@ -1429,9 +1434,14 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
     };
   }, [transactionsQuery.data, laborQuery.data, timeFilter, customStart, customEnd]);
 
+  // Total cost per material row is the all-in figure — base cost plus
+  // transportation/carrying, which are stored as their own columns (see
+  // MaterialTransactionData) but still count toward the materials total.
+  const allInCost = (t: any) => Number(t.total_cost ?? 0) + Number(t.transportation_cost ?? 0) + Number(t.carrying_cost ?? 0);
+
   const materialsCost = filteredTransactions
     .filter((t: any) => t.type === "in")
-    .reduce((s: number, t: any) => s + Number(t.total_cost ?? 0), 0);
+    .reduce((s: number, t: any) => s + allInCost(t), 0);
   const laborCost = filteredLabor.reduce((s: number, l: any) => s + Number(l.total_cost ?? 0), 0);
   const siteCost = materialsCost + laborCost;
 
@@ -1442,7 +1452,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
       const row = map.get(key) ?? { name: key, unit: t.unit ?? "", inQty: 0, outQty: 0, cost: 0 };
       if (t.type === "in") {
         row.inQty += Number(t.quantity ?? 0);
-        row.cost += Number(t.total_cost ?? 0);
+        row.cost += allInCost(t);
       } else {
         row.outQty += Number(t.quantity ?? 0);
       }

@@ -26,6 +26,22 @@ class ProjectDocumentController extends Controller
         ProjectDocument::VISIBILITY_ALL,
     ];
 
+    // RAJUK papers (the RAJUK tab's 3 fixed upload categories — see
+    // RajukTab.tsx and the 2026_09_29_071542_add_rajuk_document_types
+    // migration) are official/regulatory records: unlike ordinary project
+    // documents, only admins may upload or delete them — everyone with
+    // documents.view can still see what's already there.
+    private const RAJUK_DOCUMENT_TYPES = ['RAJUK Approval', 'RAJUK Drawing', 'RAJUK Photo'];
+
+    private function rajukWriteDenied(Request $request, ?string $documentType)
+    {
+        if (in_array($documentType, self::RAJUK_DOCUMENT_TYPES, true) && !$request->user()->hasAnyRole(['super_admin', 'admin'])) {
+            return response()->json(['message' => 'Only admins can upload or delete RAJUK documents.'], 403);
+        }
+
+        return null;
+    }
+
     private function accessDenied(Request $request, Project $project)
     {
         $user = $request->user();
@@ -202,6 +218,10 @@ class ProjectDocumentController extends Controller
                 'file' => ['required', 'file', 'max:20480'],
             ]);
 
+            if ($resp = $this->rajukWriteDenied($request, $validated['document_type'] ?? null)) {
+                return $resp;
+            }
+
             $assigneeIds = $validated['assignees'] ?? [];
             $this->validateAssignees($project, $validated['visibility'], $assigneeIds);
 
@@ -270,6 +290,9 @@ class ProjectDocumentController extends Controller
                 return $resp;
             }
             if ($resp = $this->permissionDenied($request, 'documents.edit')) {
+                return $resp;
+            }
+            if ($resp = $this->rajukWriteDenied($request, $doc->document_type)) {
                 return $resp;
             }
 
@@ -357,6 +380,9 @@ class ProjectDocumentController extends Controller
                 return $resp;
             }
             if ($resp = $this->permissionDenied($request, 'documents.delete')) {
+                return $resp;
+            }
+            if ($resp = $this->rajukWriteDenied($request, $doc->document_type)) {
                 return $resp;
             }
 

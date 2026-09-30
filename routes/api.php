@@ -12,6 +12,12 @@ use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\ProjectDocumentController;
 use App\Http\Controllers\Api\DocumentTypeController;
+use App\Http\Controllers\Api\NomineeController;
+use App\Http\Controllers\Api\ShareOwnershipRequestController;
+use App\Http\Controllers\Api\NocRequestController;
+use App\Http\Controllers\Api\JobApplicationController;
+use App\Http\Controllers\Api\PropertyController;
+use App\Http\Controllers\Api\PropertyRequestController;
 use App\Http\Middleware\UpdateLastSeenAt;
 use App\Modules\Cctv\Http\Controllers\DeviceController as CctvDeviceController;
 use App\Modules\Cctv\Http\Controllers\CameraController as CctvCameraController;
@@ -155,6 +161,52 @@ Route::prefix('v1')->group(function () {
         Route::post('/shareholder-investments', [ShareholderController::class, 'storeInvestment']);
         Route::put('/shareholder-investments/{id}', [ShareholderController::class, 'updateInvestment']);
         Route::delete('/shareholder-investments/{id}', [ShareholderController::class, 'destroyInvestment']);
+
+        // Nominees
+        Route::get('/nominees', [NomineeController::class, 'index']);
+        Route::post('/nominees', [NomineeController::class, 'store']);
+        Route::post('/nominees/{id}/approve', [NomineeController::class, 'approve']);
+        Route::put('/nominees/{id}', [NomineeController::class, 'update']);
+        Route::delete('/nominees/{id}', [NomineeController::class, 'destroy']);
+        Route::get('/nominees/{id}/nid', [NomineeController::class, 'nid']);
+        Route::get('/nominees/{id}/photo', [NomineeController::class, 'photo']);
+
+        // Apply for Others — Share Transfer / Share Sell
+        Route::get('/share-requests', [ShareOwnershipRequestController::class, 'index']);
+        Route::post('/share-requests', [ShareOwnershipRequestController::class, 'store']);
+        Route::post('/share-requests/{id}/approve', [ShareOwnershipRequestController::class, 'approve']);
+        Route::post('/share-requests/{id}/reject', [ShareOwnershipRequestController::class, 'reject']);
+        Route::delete('/share-requests/{id}', [ShareOwnershipRequestController::class, 'destroy']);
+
+        // Apply for Others — NOC
+        Route::get('/noc-requests', [NocRequestController::class, 'index']);
+        Route::post('/noc-requests', [NocRequestController::class, 'store']);
+        Route::post('/noc-requests/{id}/approve', [NocRequestController::class, 'approve']);
+        Route::post('/noc-requests/{id}/reject', [NocRequestController::class, 'reject']);
+        Route::delete('/noc-requests/{id}', [NocRequestController::class, 'destroy']);
+        Route::get('/noc-requests/{id}/document', [NocRequestController::class, 'document']);
+
+        // Job Applications (company-wide, not project-scoped)
+        Route::get('/job-applications', [JobApplicationController::class, 'index']);
+        Route::post('/job-applications', [JobApplicationController::class, 'store']);
+        Route::put('/job-applications/{id}/status', [JobApplicationController::class, 'updateStatus']);
+        Route::delete('/job-applications/{id}', [JobApplicationController::class, 'destroy']);
+        Route::get('/job-applications/{id}/cv', [JobApplicationController::class, 'cv']);
+        Route::get('/job-applications/{id}/photo', [JobApplicationController::class, 'photo']);
+        Route::get('/job-applications/{id}/certificate', [JobApplicationController::class, 'certificate']);
+
+        // Own Property (company-wide, private to the owner; Super Admin +
+        // Admin see everyone's via ?all=1)
+        Route::get('/properties', [PropertyController::class, 'index']);
+        Route::post('/properties', [PropertyController::class, 'store']);
+        Route::get('/properties/{id}', [PropertyController::class, 'show']);
+        Route::delete('/properties/{id}', [PropertyController::class, 'destroy']);
+        Route::get('/properties/{id}/documents/{docId}', [PropertyController::class, 'downloadDocument']);
+        Route::post('/properties/{id}/requests', [PropertyRequestController::class, 'store']);
+
+        Route::get('/property-requests', [PropertyRequestController::class, 'index']);
+        Route::put('/property-requests/{id}/status', [PropertyRequestController::class, 'updateStatus']);
+        Route::delete('/property-requests/{id}', [PropertyRequestController::class, 'destroy']);
 
         // Admin-only Routes
         Route::middleware('role:super_admin|admin')->group(function () {

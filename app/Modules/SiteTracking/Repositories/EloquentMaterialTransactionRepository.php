@@ -6,6 +6,7 @@ use App\Models\MaterialTransaction;
 use App\Modules\SiteTracking\Contracts\MaterialTransactionRepositoryInterface;
 use App\Modules\SiteTracking\DTO\MaterialTransactionData;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 final class EloquentMaterialTransactionRepository implements MaterialTransactionRepositoryInterface
 {
@@ -57,6 +58,6 @@ final class EloquentMaterialTransactionRepository implements MaterialTransaction
             $query->whereDate('date', '<=', $to);
         }
 
-        return (float) $query->sum('total_cost');
+        return (float) $query->sum(DB::raw('COALESCE(total_cost, 0) + COALESCE(transportation_cost, 0) + COALESCE(carrying_cost, 0)'));
     }
 }

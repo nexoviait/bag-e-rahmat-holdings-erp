@@ -21,6 +21,8 @@ import {
   FileText,
   Video,
   BarChart3,
+  Landmark,
+  FileSignature,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,6 +31,8 @@ import { FinancialTab } from "./project-tabs/FinancialTab";
 import { ShareholdersTab } from "./project-tabs/ShareholdersTab";
 import { ReportsTab } from "./project-tabs/ReportsTab";
 import { DocumentsTab } from "./project-tabs/DocumentsTab";
+import { RajukTab } from "./project-tabs/RajukTab";
+import { ApplyForOthersTab } from "./project-tabs/ApplyForOthersTab";
 import { CctvTab } from "./project-tabs/CctvTab";
 import { DailyLogTab } from "./project-tabs/DailyLogTab";
 import { ChatTab } from "./project-tabs/ChatTab";
@@ -69,6 +73,7 @@ export function ProjectDetailPage() {
   const canViewDocuments = useHasPermission("documents.view");
   const canViewCctv = useHasPermission("cctv.view");
   const canViewReports = useHasPermission("reports.view");
+  const canViewApplications = useHasPermission("applications.view");
 
   const tabs = [
     { path: "", label: "Dashboard", icon: LayoutDashboard, visible: true },
@@ -77,8 +82,13 @@ export function ProjectDetailPage() {
     { path: "/daily-log", label: "Daily Log", icon: ClipboardList, visible: canViewMaterials || canViewLabor },
     { path: "/chat", label: "Chat", icon: MessageSquare, visible: canViewChat },
     { path: "/shareholders", label: "Shareholders", icon: Users, visible: canViewShareholders },
-    { path: "/payments", label: "Owner Payments", icon: Banknote, visible: canViewFinancials },
+    // Paying money OUT to an owner/shareholder is a more sensitive action
+    // than logging ordinary revenue/expenses — restricted to admins, unlike
+    // the other financial tabs which any financials.view holder can see.
+    { path: "/payments", label: "Owner Payments", icon: Banknote, visible: isAdmin },
     { path: "/documents", label: "Documents", icon: FileText, visible: canViewDocuments },
+    { path: "/rajuk", label: "RAJUK", icon: Landmark, visible: canViewDocuments },
+    { path: "/apply", label: "Apply for Others", icon: FileSignature, visible: canViewApplications },
     { path: "/cctv", label: "CCTV", icon: Video, visible: canViewCctv },
     { path: "/reports", label: "Reports", icon: BarChart3, visible: canViewReports },
   ].filter((t) => t.visible);
@@ -138,6 +148,10 @@ export function ProjectDetailPage() {
         return <ShareholdersTab projectId={projectId!} />;
       case "/documents":
         return <DocumentsTab projectId={projectId!} />;
+      case "/rajuk":
+        return <RajukTab projectId={projectId!} />;
+      case "/apply":
+        return <ApplyForOthersTab projectId={projectId!} />;
       case "/cctv":
         return <CctvTab projectId={projectId!} />;
       case "/reports":

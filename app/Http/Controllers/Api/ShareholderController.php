@@ -35,13 +35,17 @@ class ShareholderController extends Controller
                 })
                 ->delete();
 
-            // Auto-sync assigned regular users (role = user) to shareholders table for this project
+            // Auto-sync assigned regular users (role = user) to shareholders table for this project.
+            // Nominees are excluded — they're already assigned to the project via approval
+            // (NomineeController::approve), but they represent an EXISTING shareholder rather
+            // than owning a stake of their own, so giving them their own 0%-equity phantom
+            // Shareholder row here would be wrong (and did happen before this exclusion).
             $assignments = ProjectAssignment::where('project_id', $request->project_id)
                 ->with('user.roles')
                 ->get();
 
             foreach ($assignments as $a) {
-                if ($a->user && !$a->user->hasAnyRole(['super_admin', 'admin'])) {
+                if ($a->user && !$a->user->hasAnyRole(['super_admin', 'admin', 'nominee'])) {
                     Shareholder::firstOrCreate(
                         ['project_id' => $request->project_id, 'user_id' => $a->user_id],
                         [
@@ -56,12 +60,26 @@ class ShareholderController extends Controller
 
             $query = Shareholder::where('project_id', $request->project_id)->with(['user', 'project']);
 
-            // Non-admin / non-superadmin users ONLY see their own shareholder profile data
+            // Non-admin / non-superadmin users ONLY see their own shareholder profile data —
+            // for an approved nominee that's the shareholder they represent, not a row of
+            // their own (see User::linkedShareholder()).
             if (!$user->hasAnyRole(['super_admin', 'admin'])) {
-                $query->where('user_id', $user->id);
+                $linked = $user->linkedShareholder();
+                $query->where('id', $linked?->id ?? 0);
             }
 
             $shareholders = $query->orderBy('created_at')->get();
+
+            // For an approved nominee, tag the shareholder they represent with
+            // the fraction of that equity they actually hold — the frontend
+            // (OverviewTab/ShareholdersTab) uses this to show the nominee's
+            // real slice rather than the whole shareholder's numbers.
+            if (!$user->hasAnyRole(['super_admin', 'admin'])) {
+                $nomineeSharePct = $user->nomineeSharePercentage();
+                if ($nomineeSharePct !== null) {
+                    $shareholders->each(fn ($s) => $s->nominee_share_pct = $nomineeSharePct);
+                }
+            }
 
             return response()->json($shareholders);
         } catch (ValidationException $e) {
@@ -200,13 +218,12 @@ class ShareholderController extends Controller
 
             $query = ShareholderInvestment::where('project_id', $request->project_id)->with('shareholder');
 
-            // Non-admin / non-superadmin users ONLY see their own investments
+            // Non-admin / non-superadmin users ONLY see their own investments — for an
+            // approved nominee that's the investments of the shareholder they represent.
             if (!$user->hasAnyRole(['super_admin', 'admin'])) {
-                $sh = Shareholder::where('project_id', $request->project_id)
-                    ->where('user_id', $user->id)
-                    ->first();
+                $sh = $user->linkedShareholder();
 
-                if ($sh) {
+                if ($sh && $sh->project_id == $request->project_id) {
                     $query->where('shareholder_id', $sh->id);
                 } else {
                     $query->whereRaw('1 = 0');

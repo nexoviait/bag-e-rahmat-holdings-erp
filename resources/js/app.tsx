@@ -15,9 +15,15 @@ import { ProjectDetailPage } from "@/pages/ProjectDetailPage";
 import { UsersPage } from "@/pages/admin/UsersPage";
 import { AssignmentsPage } from "@/pages/admin/AssignmentsPage";
 import { RolesPage } from "@/pages/admin/RolesPage";
+import { NomineesPage } from "@/pages/admin/NomineesPage";
+import { ApplicationsPage } from "@/pages/admin/ApplicationsPage";
+import { JobApplicationsPage } from "@/pages/admin/JobApplicationsPage";
+import { PropertiesPage } from "@/pages/admin/PropertiesPage";
 import { SettingsPage } from "@/pages/admin/SettingsPage";
 import { ActivityLogsPage } from "@/pages/admin/ActivityLogsPage";
 import { MonitoringPage } from "@/pages/MonitoringPage";
+import { JobApplicationPage } from "@/pages/JobApplicationPage";
+import { MyPropertyPage } from "@/pages/MyPropertyPage";
 import { initEcho } from "@/lib/echo";
 
 initEcho();
@@ -144,9 +150,15 @@ function MainApp() {
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/projects/:projectId/*" element={<ProjectDetailPage />} />
               <Route path="/monitoring" element={<MonitoringPage />} />
+              <Route path="/job-application" element={<JobApplicationPage />} />
+              <Route path="/my-property" element={<MyPropertyPage />} />
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/assignments" element={<AssignmentsPage />} />
               <Route path="/admin/roles" element={<RolesPage />} />
+              <Route path="/admin/nominees" element={<NomineesPage />} />
+              <Route path="/admin/applications" element={<ApplicationsPage />} />
+              <Route path="/admin/job-applications" element={<JobApplicationsPage />} />
+              <Route path="/admin/properties" element={<PropertiesPage />} />
               <Route path="/admin/settings" element={<SettingsPage />} />
               <Route path="/admin/logs" element={<ActivityLogsPage />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
