@@ -23,8 +23,20 @@ const RECEIPT_LIKE_RULES = { extensions: ["jpg", "jpeg", "png", "pdf"], maxBytes
 // DocumentsTab.tsx, which established this pattern first.
 type FieldErrors = Record<string, string[]>;
 
+// `.toISOString()` converts to UTC first — in a positive-UTC-offset timezone
+// (e.g. Bangladesh, UTC+6) that silently rewinds local midnight into the
+// previous UTC day, so every "YYYY-MM-DD" derived that way (today's date,
+// and any week/month boundary below) could land one day early. This reads
+// the Date object's own local year/month/day instead, never touching UTC.
+function localDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateStr(new Date());
 }
 
 const inputCls =
@@ -59,13 +71,8 @@ function Field({ label, error, children }: { label: string; error?: string; chil
 // source fields.
 const UNIT_OPTIONS = ["Bag", "Ton", "Kg", "CFT", "Sft", "Rft", "Piece", "Roll", "Liter", "Set", "Lot", "Truck", "Goj", "Suta"];
 
-const LABOR_TYPES = [
-  "Mason", "Helper", "Electrician", "Plumber", "Carpenter", "Painter",
-  "Rod Binder", "Welder", "Tiles Worker", "Supervisor", "Security Guard", "General Labor",
-];
-
 /** A dropdown of standard options with a "+ Add custom" escape hatch — used
- * for Unit, Labor Type, Expense Category and Revenue Source alike. Never
+ * for Unit, Expense Category and Revenue Source alike. Never
  * uses the native HTML `required` attribute — that fired its own unstyled
  * browser popup even for Category/Source, which are actually nullable on
  * FinancialController's own validation. Whether a caller's field is really
@@ -152,6 +159,17 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
   const [date, setDate] = useState(todayStr());
   const [search, setSearch] = useState("");
+  // Which of the three daily-log sections is showing — only one at a time,
+  // picked from the dropdown next to the date filter. Material In/Out is the
+  // default since it's what this tab is opened for most often.
+  const [view, setView] = useState<"materials" | "labor" | "stock" | "timeline">("materials");
+  // Daily (the original single-date behavior) vs. Weekly/Monthly (the week or
+  // month containing `date`) vs. Custom (an explicit start/end range) — lets
+  // this page answer "what happened this week/month" without going through
+  // the separate Report view just to see it on screen.
+  const [periodMode, setPeriodMode] = useState<"daily" | "weekly" | "monthly" | "custom">("daily");
+  const [customStart, setCustomStart] = useState(todayStr());
+  const [customEnd, setCustomEnd] = useState(todayStr());
   const [activeDialog, setActiveDialog] = useState<"material" | "transaction" | "labor" | null>(null);
   const [showReport, setShowReport] = useState(false);
   // The row being edited, if any — passed as `initialData` to whichever
@@ -170,6 +188,45 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
   const canDeleteLabor = useHasPermission("labor.delete");
   const receiptPreview = useReceiptPreview();
 
+  // Parsed manually (not `new Date(date)`) so this stays in local time —
+  // parsing a bare "YYYY-MM-DD" string is treated as UTC midnight by JS and
+  // can land on the wrong day once shifted to a negative-UTC-offset locale.
+  const { periodLabel, apiDateFrom, apiDateTo } = useMemo(() => {
+    // The date picker's own "X"/Clear control can set `date` (or
+    // customStart/customEnd) to "" — without this fallback that produced an
+    // Invalid Date, which formatted as "NaN-NaN-NaN" and sent a garbage
+    // `date` to the API (422 → "Failed to load the daily summary").
+    const safeDate = date || todayStr();
+    if (periodMode === "weekly") {
+      const [y, m, d] = safeDate.split("-").map(Number);
+      const anchor = new Date(y, m - 1, d);
+      const day = anchor.getDay();
+      const monday = new Date(anchor);
+      monday.setDate(anchor.getDate() + (day === 0 ? -6 : 1 - day));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const from = localDateStr(monday);
+      const to = localDateStr(sunday);
+      return { periodFrom: from, periodTo: to, periodLabel: `${from} to ${to}`, apiDateFrom: from, apiDateTo: to };
+    }
+    if (periodMode === "monthly") {
+      const [y, m] = safeDate.split("-").map(Number);
+      const first = new Date(y, m - 1, 1);
+      const last = new Date(y, m, 0);
+      const from = localDateStr(first);
+      const to = localDateStr(last);
+      return { periodFrom: from, periodTo: to, periodLabel: `${from} to ${to}`, apiDateFrom: from, apiDateTo: to };
+    }
+    if (periodMode === "custom") {
+      const from = customStart || safeDate;
+      const to = customEnd || safeDate;
+      return { periodFrom: from, periodTo: to, periodLabel: `${from} to ${to}`, apiDateFrom: from, apiDateTo: to };
+    }
+    // daily — apiDateTo stays undefined so the API calls below are byte-for-byte
+    // what they were before periodMode existed (no date_to param at all).
+    return { periodFrom: safeDate, periodTo: safeDate, periodLabel: safeDate, apiDateFrom: safeDate, apiDateTo: undefined as string | undefined };
+  }, [periodMode, date, customStart, customEnd]);
+
   const materialsQuery = useQuery({
     queryKey: ["site-materials", projectId],
     enabled: canViewMaterials,
@@ -184,27 +241,30 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
   // quantity…), not the display-formatted strings the merged timeline below
   // builds for its single combined feed.
   const transactionsQuery = useQuery({
-    queryKey: ["site-material-transactions", projectId, date],
+    queryKey: ["site-material-transactions", projectId, apiDateFrom, apiDateTo],
     enabled: canViewMaterials,
     queryFn: async () => {
-      const res = await api.get(`/material-transactions?project_id=${projectId}&date=${date}`);
+      const dateToParam = apiDateTo ? `&date_to=${apiDateTo}` : "";
+      const res = await api.get(`/material-transactions?project_id=${projectId}&date=${apiDateFrom}${dateToParam}`);
       return res.data as any[];
     },
   });
 
   const laborLogsQuery = useQuery({
-    queryKey: ["site-labor-logs", projectId, date],
+    queryKey: ["site-labor-logs", projectId, apiDateFrom, apiDateTo],
     enabled: canViewLabor,
     queryFn: async () => {
-      const res = await api.get(`/labor-logs?project_id=${projectId}&date=${date}`);
+      const dateToParam = apiDateTo ? `&date_to=${apiDateTo}` : "";
+      const res = await api.get(`/labor-logs?project_id=${projectId}&date=${apiDateFrom}${dateToParam}`);
       return res.data as any[];
     },
   });
 
   const summaryQuery = useQuery({
-    queryKey: ["site-daily-summary", projectId, date],
+    queryKey: ["site-daily-summary", projectId, apiDateFrom, apiDateTo],
     queryFn: async () => {
-      const res = await api.get(`/projects/${projectId}/daily-summary?date=${date}`);
+      const dateToParam = apiDateTo ? `&date_to=${apiDateTo}` : "";
+      const res = await api.get(`/projects/${projectId}/daily-summary?date=${apiDateFrom}${dateToParam}`);
       return res.data;
     },
   });
@@ -265,8 +325,47 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="w-56">
-          <DatePicker value={date} onChange={setDate} placeholder="Select date" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Calendar className="h-4 w-4 shrink-0 text-gold" />
+          <select
+            value={periodMode}
+            onChange={(e) => setPeriodMode(e.target.value as typeof periodMode)}
+            className="rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-gold focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--gold)_20%,transparent)]"
+          >
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="custom">Custom</option>
+          </select>
+          {periodMode === "custom" ? (
+            <div className="flex items-center gap-2">
+              <div className="w-40">
+                {/* Clearing never leaves this blank — an unset start/end
+                    doesn't mean anything on this page, so it just falls back
+                    to today instead of producing an Invalid Date downstream. */}
+                <DatePicker value={customStart} onChange={(v) => setCustomStart(v || todayStr())} placeholder="Start date" />
+              </div>
+              <span className="text-xs text-muted-foreground">to</span>
+              <div className="w-40">
+                <DatePicker value={customEnd} onChange={(v) => setCustomEnd(v || todayStr())} placeholder="End date" />
+              </div>
+            </div>
+          ) : (
+            <div className="w-48">
+              <DatePicker value={date} onChange={(v) => setDate(v || todayStr())} placeholder="Select date" />
+            </div>
+          )}
+          <span className="mx-1 hidden h-6 w-px shrink-0 bg-border/60 sm:block" />
+          <select
+            value={view}
+            onChange={(e) => setView(e.target.value as typeof view)}
+            className="rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-gold focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--gold)_20%,transparent)]"
+          >
+            <option value="materials">Material In/Out</option>
+            <option value="labor">Labor</option>
+            <option value="stock">Stock Levels</option>
+            <option value="timeline">Full Timeline</option>
+          </select>
         </div>
         <div className="flex flex-wrap gap-2">
           {/* Quick-add Expense/Revenue removed from Daily Log entirely — the
@@ -315,22 +414,23 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
       </div>
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Expenses (this day)" value={fmtBDT(summaryQuery.data?.expenses ?? 0)} accent="red" />
-        <StatCard label="Revenue (this day)" value={fmtBDT(summaryQuery.data?.revenue ?? 0)} accent="green" />
+        <StatCard label={periodMode === "daily" ? "Expenses (this day)" : "Expenses (this period)"} value={fmtBDT(summaryQuery.data?.expenses ?? 0)} accent="red" />
+        <StatCard label={periodMode === "daily" ? "Revenue (this day)" : "Revenue (this period)"} value={fmtBDT(summaryQuery.data?.revenue ?? 0)} accent="green" />
         <StatCard label="Materials Cost" value={fmtBDT(summaryQuery.data?.materialsCost ?? 0)} accent="red" />
         <StatCard label="Labor Cost" value={fmtBDT(summaryQuery.data?.laborCost ?? 0)} accent="red" />
-        <StatCard label="Net (this day)" value={fmtBDT(summaryQuery.data?.net ?? 0)} accent="gold" />
+        <StatCard label={periodMode === "daily" ? "Net (this day)" : "Net (this period)"} value={fmtBDT(summaryQuery.data?.net ?? 0)} accent="gold" />
       </div>
 
-      {/* Order deliberately: Material In/Out, then Labor, then the (less
-          frequently touched) Stock Levels reference table last — the two
-          daily-activity feeds are what someone opens this tab to check/add
-          to first. Search stays a single shared input here since it's
-          always filtered both this list and Stock Levels below. */}
-      {canViewMaterials && (
+      {/* Only the section picked from the dropdown above renders — Material
+          In/Out, then Labor, then the (less frequently touched) Stock Levels
+          reference table were previously all shown stacked at once; the
+          dropdown now keeps the page to one section at a time. Search stays
+          a single shared input here since it still filters both Material
+          In/Out and Stock Levels. */}
+      {view === "materials" && canViewMaterials && (
         <div className="noir-panel overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
-            <h3 className="font-display text-lg font-semibold">Material In/Out — {date}</h3>
+            <h3 className="font-display text-lg font-semibold">Material In/Out — {periodLabel}</h3>
             <div className="relative w-full max-w-[220px]">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
@@ -343,7 +443,7 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
           </div>
           <div className="px-5 py-4">
             {materialRows.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No material movement recorded for this date.</div>
+              <div className="text-sm text-muted-foreground">No material movement recorded for this {periodMode === "daily" ? "date" : "period"}.</div>
             ) : filteredMaterialRows.length === 0 ? (
               <div className="text-sm text-muted-foreground">No entries match "{search}".</div>
             ) : (
@@ -356,9 +456,19 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
                   const note = r.notes ? `Note: ${r.notes}` : null;
                   const detail = [tag, workItem, transport, carrying, note].filter(Boolean).join(" · ");
                   const qtyLabel = r.quantity != null ? `${r.quantity} ${r.unit} of ` : "";
+                  // All-in total — base cost plus transportation/carrying,
+                  // same figure the Materials Cost stat card and Report view
+                  // already use, so this row's number actually matches them
+                  // instead of silently under-counting by whatever got spent
+                  // getting the material to site.
+                  const hasAnyCost = r.total_cost != null || r.transportation_cost != null || r.carrying_cost != null;
+                  const allInTotal = Number(r.total_cost ?? 0) + Number(r.transportation_cost ?? 0) + Number(r.carrying_cost ?? 0);
                   return (
                     <div key={r.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-surface-2 px-3 py-2">
                       <div className="min-w-0">
+                        {periodMode !== "daily" && (
+                          <span className="mr-2 rounded-full bg-surface-1 px-2 py-0.5 text-[10px] text-muted-foreground">{r.date}</span>
+                        )}
                         <span
                           className={`mr-2 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider ${
                             r.type === "in"
@@ -383,7 +493,25 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
                             <Paperclip className="h-4 w-4" />
                           </button>
                         )}
-                        {r.total_cost != null && <span className="font-medium">{fmtBDT(r.total_cost)}</span>}
+                        {hasAnyCost && (
+                          <div className="text-right">
+                            {r.total_cost != null && (r.transportation_cost != null || r.carrying_cost != null) && (
+                              <div className="text-[11px] text-muted-foreground">
+                                Material: <span className="text-foreground">{fmtBDT(r.total_cost)}</span>
+                              </div>
+                            )}
+                            <div className="text-sm font-medium">
+                              {r.total_cost != null && (r.transportation_cost != null || r.carrying_cost != null) ? (
+                                <>
+                                  <span className="text-xs font-normal text-muted-foreground">Total: </span>
+                                  <span className="text-gold">{fmtBDT(allInTotal)}</span>
+                                </>
+                              ) : (
+                                fmtBDT(allInTotal)
+                              )}
+                            </div>
+                          </div>
+                        )}
                         {canEditMaterials && (
                           <button
                             onClick={() => {
@@ -420,22 +548,23 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {canViewLabor && (
+      {view === "labor" && canViewLabor && (
         <div className="noir-panel overflow-hidden">
           <div className="border-b border-border/60 px-5 py-4">
-            <h3 className="font-display text-lg font-semibold">Labor — {date}</h3>
+            <h3 className="font-display text-lg font-semibold">Labor — {periodLabel}</h3>
           </div>
           <div className="px-5 py-4">
             {laborRows.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No labor logged for this date.</div>
+              <div className="text-sm text-muted-foreground">No labor logged for this {periodMode === "daily" ? "date" : "period"}.</div>
             ) : (
               <div className="space-y-2">
                 {laborRows.map((r: any) => (
                   <div key={r.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-surface-2 px-3 py-2">
                     <div className="min-w-0">
-                      <span className="text-sm">
-                        {r.headcount} × {r.labor_type}
-                      </span>
+                      {periodMode !== "daily" && (
+                        <span className="mr-2 rounded-full bg-surface-1 px-2 py-0.5 text-[10px] text-muted-foreground">{r.date}</span>
+                      )}
+                      <span className="text-sm">{r.labor_type ? `${r.headcount} × ${r.labor_type}` : `${r.headcount} worker${r.headcount === 1 ? "" : "s"}`}</span>
                       {r.notes && <span className="ml-2 text-xs text-muted-foreground">({r.notes})</span>}
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
@@ -454,7 +583,10 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
                       )}
                       {canDeleteLabor && (
                         <button
-                          onClick={() => confirm(`Delete this labor entry (${r.headcount} × ${r.labor_type})? This cannot be undone.`) && deleteLabor.mutate(r.id)}
+                          onClick={() => {
+                            const label = r.labor_type ? `${r.headcount} × ${r.labor_type}` : `${r.headcount} worker(s)`;
+                            if (confirm(`Delete this labor entry (${label})? This cannot be undone.`)) deleteLabor.mutate(r.id);
+                          }}
                           className="text-muted-foreground hover:text-destructive cursor-pointer"
                           aria-label="Delete labor entry"
                         >
@@ -470,7 +602,7 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {canViewMaterials && (
+      {view === "stock" && canViewMaterials && (
         <div className="noir-panel overflow-hidden">
           <div className="flex items-center gap-2 border-b border-border/60 px-5 py-4">
             <Package className="h-4 w-4 text-gold" />
@@ -561,21 +693,27 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {view === "timeline" && (
       <div className="noir-panel overflow-hidden">
         <div className="border-b border-border/60 px-5 py-4">
-          <h3 className="font-display text-lg font-semibold">Full timeline — {date}</h3>
+          <h3 className="font-display text-lg font-semibold">Full timeline — {periodLabel}</h3>
         </div>
         {summaryQuery.isLoading ? (
           <div className="grid h-24 place-items-center">
             <Loader2 className="h-5 w-5 animate-spin text-gold" />
           </div>
         ) : timeline.length === 0 ? (
-          <div className="px-5 py-8 text-center text-muted-foreground">Nothing recorded for this date yet.</div>
+          <div className="px-5 py-8 text-center text-muted-foreground">Nothing recorded for this {periodMode === "daily" ? "date" : "period"} yet.</div>
         ) : (
           <div className="divide-y divide-border/40">
             {timeline.map((r: any) => (
               <div key={`${r.kind}-${r.id}`} className="flex items-center justify-between gap-3 p-4">
                 <div className="min-w-0">
+                  {periodMode !== "daily" && r.created_at && (
+                    <span className="mr-2 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {String(r.created_at).slice(0, 10)}
+                    </span>
+                  )}
                   <span
                     className={`mr-2 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider ${
                       r.kind === "Revenue"
@@ -606,6 +744,7 @@ export function DailyLogTab({ projectId }: { projectId: string }) {
           </div>
         )}
       </div>
+      )}
 
       {activeDialog === "material" && (
         <AddMaterialModal
@@ -872,6 +1011,10 @@ function AddTransactionModal({
   onSaved: () => void;
 }) {
   const isEditing = !!initialData;
+  // Defaults to whichever day the Daily Log page is currently viewing, but
+  // stays independently editable here — lets you log a previous day's
+  // purchase/usage without first changing the page's own date filter.
+  const [entryDate, setEntryDate] = useState(initialData?.date ?? date);
   const [isNewMaterial, setIsNewMaterial] = useState(!isEditing && materials.length === 0);
   const [materialId, setMaterialId] = useState(initialData?.material_id ?? materials[0]?.id ?? "");
   const [newName, setNewName] = useState("");
@@ -921,6 +1064,7 @@ function AddTransactionModal({
 
   function validate(): FieldErrors {
     const errors: FieldErrors = {};
+    if (!entryDate) errors.entryDate = ["Date is required."];
     if (isNewMaterial) {
       if (!newName.trim()) errors.newName = ["Item name is required."];
       if (!newUnit) errors.newUnit = ["Please select or enter a unit."];
@@ -959,7 +1103,7 @@ function AddTransactionModal({
         project_id: projectId,
         material_id: id,
         type,
-        date,
+        date: entryDate,
         quantity: quantity || null,
         unit_price: type === "in" ? unitPrice || null : null,
         total_cost: displayAmount || null,
@@ -1016,6 +1160,15 @@ function AddTransactionModal({
         }}
         className="mt-5 space-y-4"
       >
+        <Field label="Date" error={fieldErrors.entryDate?.[0]}>
+          <DatePicker
+            value={entryDate}
+            onChange={(v) => {
+              setEntryDate(v);
+              if (fieldErrors.entryDate) setFieldErrors((p) => ({ ...p, entryDate: undefined }));
+            }}
+          />
+        </Field>
         {isNewMaterial ? (
           <div className="grid grid-cols-2 gap-3">
             <Field label="New item name" error={fieldErrors.newName?.[0]}>
@@ -1223,7 +1376,7 @@ function AddLaborModal({
   onSaved: () => void;
 }) {
   const isEditing = !!initialData;
-  const [laborType, setLaborType] = useState(initialData?.labor_type ?? "");
+  const [entryDate, setEntryDate] = useState(initialData?.date ?? date);
   const [headcount, setHeadcount] = useState(initialData?.headcount != null ? String(initialData.headcount) : "");
   const [wageRate, setWageRate] = useState(initialData?.wage_rate != null ? String(initialData.wage_rate) : "");
   const [notes, setNotes] = useState(initialData?.notes ?? "");
@@ -1233,7 +1386,7 @@ function AddLaborModal({
 
   function validate(): FieldErrors {
     const errors: FieldErrors = {};
-    if (!laborType) errors.laborType = ["Please select or enter a labor type."];
+    if (!entryDate) errors.entryDate = ["Date is required."];
     if (!headcount || Number(headcount) < 1) errors.headcount = ["Headcount must be at least 1."];
     return errors;
   }
@@ -1242,8 +1395,7 @@ function AddLaborModal({
     mutationFn: async () => {
       const payload = {
         project_id: projectId,
-        date,
-        labor_type: laborType,
+        date: entryDate,
         headcount,
         wage_rate: wageRate || null,
         notes: notes || null,
@@ -1279,16 +1431,15 @@ function AddLaborModal({
         }}
         className="mt-5 space-y-4"
       >
-        <SelectWithCustom
-          label="Labor type"
-          value={laborType}
-          onChange={(v) => {
-            setLaborType(v);
-            if (fieldErrors.laborType) setFieldErrors((p) => ({ ...p, laborType: undefined }));
-          }}
-          options={LABOR_TYPES}
-          error={fieldErrors.laborType?.[0]}
-        />
+        <Field label="Date" error={fieldErrors.entryDate?.[0]}>
+          <DatePicker
+            value={entryDate}
+            onChange={(v) => {
+              setEntryDate(v);
+              if (fieldErrors.entryDate) setFieldErrors((p) => ({ ...p, entryDate: undefined }));
+            }}
+          />
+        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Headcount" error={fieldErrors.headcount?.[0]}>
             <input
@@ -1359,6 +1510,12 @@ async function loadImageAsDataUrl(url: string): Promise<{ dataUrl: string; forma
   }
 }
 
+const VIEW_LABELS = {
+  materials: "Material In/Out",
+  labor: "Labor",
+  stock: "Stock Levels",
+} as const;
+
 /**
  * Deliberately its own report, separate from the project-wide Reports tab
  * (which is Shareholder Report only — see ReportsTab.tsx's own docblock).
@@ -1372,6 +1529,10 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
   const [timeFilter, setTimeFilter] = useState<DailyLogReportFilter>("month");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [search, setSearch] = useState("");
+  // Same one-section-at-a-time dropdown as the main Daily Log page, so this
+  // report view isn't the only place still showing everything stacked.
+  const [view, setView] = useState<"materials" | "labor" | "stock">("materials");
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
@@ -1404,20 +1565,20 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
 
   const { filteredTransactions, filteredLabor } = useMemo(() => {
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
+    const todayDateStr = localDateStr(now);
     const day = now.getDay();
     const monday = new Date(now);
     monday.setDate(now.getDate() + (day === 0 ? -6 : 1 - day));
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
-    const weekStart = monday.toISOString().slice(0, 10);
-    const weekEnd = sunday.toISOString().slice(0, 10);
-    const currentYearMonth = now.toISOString().slice(0, 7);
+    const weekStart = localDateStr(monday);
+    const weekEnd = localDateStr(sunday);
+    const currentYearMonth = localDateStr(now).slice(0, 7);
     const currentYear = now.getFullYear().toString();
 
     const filterFn = (row: any) => {
       if (!row.date) return true;
-      if (timeFilter === "today") return row.date === todayStr;
+      if (timeFilter === "today") return row.date === todayDateStr;
       if (timeFilter === "week") return row.date >= weekStart && row.date <= weekEnd;
       if (timeFilter === "month") return row.date.startsWith(currentYearMonth);
       if (timeFilter === "year") return row.date.startsWith(currentYear);
@@ -1438,6 +1599,11 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
   // transportation/carrying, which are stored as their own columns (see
   // MaterialTransactionData) but still count toward the materials total.
   const allInCost = (t: any) => Number(t.total_cost ?? 0) + Number(t.transportation_cost ?? 0) + Number(t.carrying_cost ?? 0);
+  // Effective average rate paid per unit across every purchase of this
+  // material in the period — base cost only (excludes transport/carrying,
+  // which aren't a per-unit price), so it reads as "what we actually paid
+  // per piece", not inflated by delivery overhead.
+  const avgRate = (m: { inQty: number; baseCost: number }) => (m.inQty > 0 ? m.baseCost / m.inQty : null);
 
   const materialsCost = filteredTransactions
     .filter((t: any) => t.type === "in")
@@ -1446,15 +1612,22 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
   const siteCost = materialsCost + laborCost;
 
   const materialBreakdown = useMemo(() => {
-    const map = new Map<string, { name: string; unit: string; inQty: number; outQty: number; cost: number }>();
+    const map = new Map<
+      string,
+      { name: string; unit: string; inQty: number; cost: number; baseCost: number; transportCost: number; carryingCost: number; suppliers: Set<string> }
+    >();
     filteredTransactions.forEach((t: any) => {
       const key = t.material_name ?? "Unknown material";
-      const row = map.get(key) ?? { name: key, unit: t.unit ?? "", inQty: 0, outQty: 0, cost: 0 };
+      const row =
+        map.get(key) ??
+        { name: key, unit: t.unit ?? "", inQty: 0, cost: 0, baseCost: 0, transportCost: 0, carryingCost: 0, suppliers: new Set<string>() };
       if (t.type === "in") {
         row.inQty += Number(t.quantity ?? 0);
         row.cost += allInCost(t);
-      } else {
-        row.outQty += Number(t.quantity ?? 0);
+        row.baseCost += Number(t.total_cost ?? 0);
+        row.transportCost += Number(t.transportation_cost ?? 0);
+        row.carryingCost += Number(t.carrying_cost ?? 0);
+        if (t.supplier) row.suppliers.add(t.supplier);
       }
       map.set(key, row);
     });
@@ -1464,7 +1637,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
   const laborBreakdown = useMemo(() => {
     const map = new Map<string, { type: string; headcount: number; cost: number }>();
     filteredLabor.forEach((l: any) => {
-      const key = l.labor_type ?? "Unknown";
+      const key = l.labor_type ?? "General Labor";
       const row = map.get(key) ?? { type: key, headcount: 0, cost: 0 };
       row.headcount += Number(l.headcount ?? 0);
       row.cost += Number(l.total_cost ?? 0);
@@ -1472,6 +1645,23 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
     });
     return [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
   }, [filteredLabor]);
+
+  // Search only narrows what's shown on screen — CSV/PDF exports always use
+  // the full materialBreakdown/laborBreakdown/stock list above, since an
+  // export is meant to be the complete record for the period, not whatever
+  // happened to be typed into the search box at that moment.
+  const visibleMaterialBreakdown = useMemo(
+    () => materialBreakdown.filter((m) => smartMatch(search, m.name, m.unit)),
+    [materialBreakdown, search]
+  );
+  const visibleLaborBreakdown = useMemo(
+    () => laborBreakdown.filter((l) => smartMatch(search, l.type)),
+    [laborBreakdown, search]
+  );
+  const visibleStock = useMemo(
+    () => (materialsQuery.data ?? []).filter((m: any) => smartMatch(search, m.name, m.unit)),
+    [materialsQuery.data, search]
+  );
 
   // RFC 4180 escaping, same as ReportsTab.tsx's own CSV export — a material
   // or labor-type name with a comma in it would otherwise silently corrupt
@@ -1485,37 +1675,84 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
   }
 
   function handleExportCSV() {
+    // Filter-wise — only the section currently selected in the view dropdown
+    // goes into the export, same as what's shown on screen, instead of
+    // always dumping Material/Labor/Stock together regardless of what was
+    // actually being looked at.
     const rows: unknown[][] = [
-      ["Daily Log Report — Material In/Out, Labor & Stock"],
-      ["Time Filter", timeFilter],
+      [`Daily Log Report — ${VIEW_LABELS[view]}`],
+      ["Time Filter", DAILY_LOG_REPORT_FILTER_LABELS[timeFilter]],
       [],
-      ["Summary", "Amount (BDT)"],
-      ["Materials Cost", materialsCost],
-      ["Labor Cost", laborCost],
-      ["Total Site Cost", siteCost],
-      [],
-      ["Material In/Out", "In Qty", "Out Qty", "Cost (BDT)"],
-      ...(materialBreakdown.length > 0
-        ? materialBreakdown.map((m) => [`${m.name} (${m.unit})`, m.inQty, m.outQty, m.cost])
-        : [["No material movement in this period.", "", "", ""]]),
-      [],
-      ["Labor", "Headcount", "Cost (BDT)"],
-      ...(laborBreakdown.length > 0
-        ? laborBreakdown.map((l) => [l.type, l.headcount, l.cost])
-        : [["No labor logged in this period.", "", ""]]),
-      [],
-      ["Current Stock Levels", "Unit", "Current Stock"],
-      ...((materialsQuery.data ?? []).length > 0
-        ? (materialsQuery.data ?? []).map((m: any) => [m.name, m.unit, m.current_stock ?? 0])
-        : [["No materials found.", "", ""]]),
     ];
+
+    if (view === "materials") {
+      rows.push(
+        ["Summary", "Amount (BDT)"],
+        ["Materials Cost", materialsCost],
+        [],
+        [
+          "Material In/Out",
+          "In Qty",
+          "Rate (BDT)",
+          "Supplier",
+          "Transport (BDT)",
+          "Carrying (BDT)",
+          "Material Cost (BDT)",
+          "Total Cost (BDT)",
+        ],
+        ...(materialBreakdown.length > 0
+          ? [
+              ...materialBreakdown.map((m) => [
+                `${m.name} (${m.unit})`,
+                m.inQty,
+                avgRate(m) ?? "",
+                [...m.suppliers].join("; ") || "",
+                m.transportCost,
+                m.carryingCost,
+                m.baseCost,
+                m.cost,
+              ]),
+              [
+                "Total",
+                "",
+                "",
+                "",
+                materialBreakdown.reduce((s, m) => s + m.transportCost, 0),
+                materialBreakdown.reduce((s, m) => s + m.carryingCost, 0),
+                materialBreakdown.reduce((s, m) => s + m.baseCost, 0),
+                materialsCost,
+              ],
+            ]
+          : [["No material movement in this period.", "", "", "", "", "", "", ""]])
+      );
+    } else if (view === "labor") {
+      rows.push(
+        ["Summary", "Amount (BDT)"],
+        ["Labor Cost", laborCost],
+        [],
+        ["Labor", "Headcount", "Cost (BDT)"],
+        ...(laborBreakdown.length > 0
+          ? [
+              ...laborBreakdown.map((l) => [l.type, l.headcount, l.cost]),
+              ["Total", laborBreakdown.reduce((s, l) => s + l.headcount, 0), laborCost],
+            ]
+          : [["No labor logged in this period.", "", ""]])
+      );
+    } else {
+      rows.push(
+        ["Current Stock Levels", "Unit", "Current Stock"],
+        ...((materialsQuery.data ?? []).length > 0
+          ? (materialsQuery.data ?? []).map((m: any) => [m.name, m.unit, m.current_stock ?? 0])
+          : [["No materials found.", "", ""]])
+      );
+    }
 
     const csvContent = "﻿" + rows.map(csvRow).join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `daily_log_report_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `daily_log_${view}_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1565,7 +1802,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
 
     doc.setFontSize(13);
     doc.setFont("helvetica", "bold");
-    doc.text("Daily Log Report", marginX, y);
+    doc.text(`Daily Log Report — ${VIEW_LABELS[view]}`, marginX, y);
     doc.setFont("helvetica", "normal");
     y += 6;
     doc.setFontSize(11);
@@ -1584,50 +1821,104 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
       styles: { fontSize: 9, cellPadding: 2.5 },
     };
 
-    autoTable(doc, {
-      ...tableDefaults,
-      startY: y,
-      head: [["Summary", "Amount"]],
-      body: [
-        ["Materials Cost", pdfBDT(materialsCost)],
-        ["Labor Cost", pdfBDT(laborCost)],
-        ["Total Site Cost", pdfBDT(siteCost)],
-      ],
-      columnStyles: { 1: { halign: "right" } },
-    });
+    // Filter-wise — only the section currently selected in the view dropdown
+    // goes into the PDF, matching what's on screen, instead of always
+    // dumping Material/Labor/Stock together regardless of what was actually
+    // being looked at.
+    if (view === "materials") {
+      const totalTransport = materialBreakdown.reduce((s, m) => s + m.transportCost, 0);
+      const totalCarrying = materialBreakdown.reduce((s, m) => s + m.carryingCost, 0);
+      const costBreakdown =
+        totalTransport > 0 || totalCarrying > 0
+          ? ` (Transport: ${pdfBDT(totalTransport)} · Carrying: ${pdfBDT(totalCarrying)})`
+          : "";
 
-    autoTable(doc, {
-      ...tableDefaults,
-      startY: (doc as any).lastAutoTable.finalY + 8,
-      head: [["Material In/Out", "In Qty", "Out Qty", "Cost"]],
-      body:
-        materialBreakdown.length > 0
-          ? materialBreakdown.map((m) => [`${m.name} (${m.unit})`, m.inQty, m.outQty, pdfBDT(m.cost)])
-          : [["No material movement in this period.", "", "", ""]],
-      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } },
-    });
+      autoTable(doc, {
+        ...tableDefaults,
+        startY: y,
+        head: [["Summary", "Amount"]],
+        body: [[`Materials Cost${costBreakdown}`, pdfBDT(materialsCost)]],
+        columnStyles: { 1: { halign: "right" } },
+      });
 
-    autoTable(doc, {
-      ...tableDefaults,
-      startY: (doc as any).lastAutoTable.finalY + 8,
-      head: [["Labor", "Headcount", "Cost"]],
-      body:
-        laborBreakdown.length > 0
-          ? laborBreakdown.map((l) => [l.type, l.headcount, pdfBDT(l.cost)])
-          : [["No labor logged in this period.", "", ""]],
-      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
-    });
+      autoTable(doc, {
+        ...tableDefaults,
+        startY: (doc as any).lastAutoTable.finalY + 8,
+        head: [["Material In/Out", "In Qty", "Rate", "Supplier", "Transport", "Carrying", "Material Cost", "Total Cost"]],
+        body:
+          materialBreakdown.length > 0
+            ? materialBreakdown.map((m) => [
+                `${m.name} (${m.unit})`,
+                m.inQty > 0 ? m.inQty : "—",
+                avgRate(m) != null ? pdfBDT(avgRate(m) as number) : "—",
+                [...m.suppliers].join("; ") || "—",
+                m.transportCost > 0 ? pdfBDT(m.transportCost) : "—",
+                m.carryingCost > 0 ? pdfBDT(m.carryingCost) : "—",
+                pdfBDT(m.baseCost),
+                pdfBDT(m.cost),
+              ])
+            : [["No material movement in this period.", "", "", "", "", "", "", ""]],
+        foot:
+          materialBreakdown.length > 0
+            ? [
+                [
+                  "Total",
+                  "",
+                  "",
+                  "",
+                  pdfBDT(totalTransport),
+                  pdfBDT(totalCarrying),
+                  pdfBDT(materialBreakdown.reduce((s, m) => s + m.baseCost, 0)),
+                  pdfBDT(materialsCost),
+                ],
+              ]
+            : undefined,
+        footStyles: { fillColor: [245, 240, 225], textColor: [20, 20, 20], fontStyle: "bold" as const },
+        columnStyles: {
+          1: { halign: "right" },
+          2: { halign: "right" },
+          4: { halign: "right" },
+          5: { halign: "right" },
+          6: { halign: "right" },
+          7: { halign: "right" },
+        },
+      });
+    } else if (view === "labor") {
+      autoTable(doc, {
+        ...tableDefaults,
+        startY: y,
+        head: [["Summary", "Amount"]],
+        body: [["Labor Cost", pdfBDT(laborCost)]],
+        columnStyles: { 1: { halign: "right" } },
+      });
 
-    autoTable(doc, {
-      ...tableDefaults,
-      startY: (doc as any).lastAutoTable.finalY + 8,
-      head: [["Current Stock Levels", "Unit", "Current Stock"]],
-      body:
-        (materialsQuery.data ?? []).length > 0
-          ? (materialsQuery.data ?? []).map((m: any) => [m.name, m.unit, m.current_stock ?? 0])
-          : [["No materials found.", "", ""]],
-      columnStyles: { 2: { halign: "right" } },
-    });
+      autoTable(doc, {
+        ...tableDefaults,
+        startY: (doc as any).lastAutoTable.finalY + 8,
+        head: [["Labor", "Headcount", "Cost"]],
+        body:
+          laborBreakdown.length > 0
+            ? laborBreakdown.map((l) => [l.type, l.headcount, pdfBDT(l.cost)])
+            : [["No labor logged in this period.", "", ""]],
+        foot:
+          laborBreakdown.length > 0
+            ? [["Total", laborBreakdown.reduce((s, l) => s + l.headcount, 0), pdfBDT(laborCost)]]
+            : undefined,
+        footStyles: { fillColor: [245, 240, 225], textColor: [20, 20, 20], fontStyle: "bold" as const },
+        columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
+      });
+    } else {
+      autoTable(doc, {
+        ...tableDefaults,
+        startY: y,
+        head: [["Current Stock Levels", "Unit", "Current Stock"]],
+        body:
+          (materialsQuery.data ?? []).length > 0
+            ? (materialsQuery.data ?? []).map((m: any) => [m.name, m.unit, m.current_stock ?? 0])
+            : [["No materials found.", "", ""]],
+        columnStyles: { 2: { halign: "right" } },
+      });
+    }
 
     const pageCount = doc.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
@@ -1640,7 +1931,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
       doc.setTextColor(0);
     }
 
-    doc.save(`daily_log_report_${new Date().toISOString().slice(0, 10)}.pdf`);
+    doc.save(`daily_log_${view}_${new Date().toISOString().slice(0, 10)}.pdf`);
     toast.success("PDF report exported");
   }
 
@@ -1685,6 +1976,25 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
                 </div>
               </div>
             )}
+            <span className="mx-1 hidden h-6 w-px shrink-0 bg-border/60 sm:block" />
+            <select
+              value={view}
+              onChange={(e) => setView(e.target.value as typeof view)}
+              className="rounded-md border border-border bg-input px-3 py-1.5 text-xs text-foreground outline-none focus:border-gold"
+            >
+              <option value="materials">Material In/Out</option>
+              <option value="labor">Labor</option>
+              <option value="stock">Stock Levels</option>
+            </select>
+            <div className="relative w-full max-w-[220px]">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search materials, labor, stock…"
+                className="w-full rounded-md border border-border bg-input py-1.5 pl-8 pr-3 text-xs text-foreground outline-none focus:border-gold"
+              />
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -1712,6 +2022,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
               <StatCard label="Total Site Cost" value={fmtBDT(siteCost)} accent="gold" />
             </div>
 
+            {view === "materials" && (
             <div>
               <h4 className="mb-2 text-sm font-semibold text-muted-foreground">Material In/Out</h4>
               <div className="overflow-x-auto rounded-lg border border-border/60">
@@ -1719,33 +2030,85 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
                   <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-widest text-muted-foreground">
                     <tr>
                       <th className="px-3 py-2">Material</th>
-                      <th className="px-3 py-2 text-right">In</th>
-                      <th className="px-3 py-2 text-right">Out</th>
+                      <th className="px-3 py-2 text-right">Qty</th>
+                      <th className="px-3 py-2 text-right">Rate / Unit</th>
+                      <th className="px-3 py-2">Supplier</th>
+                      <th className="px-3 py-2 text-right">Transport</th>
+                      <th className="px-3 py-2 text-right">Carrying</th>
                       <th className="px-3 py-2 text-right">Cost</th>
                     </tr>
                   </thead>
                   <tbody>
                     {materialBreakdown.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
+                        <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
                           No material movement in this period.
                         </td>
                       </tr>
+                    ) : visibleMaterialBreakdown.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
+                          No materials match "{search}".
+                        </td>
+                      </tr>
                     ) : (
-                      materialBreakdown.map((m) => (
-                        <tr key={m.name} className="border-t border-border/40">
-                          <td className="px-3 py-2">{m.name}</td>
-                          <td className="px-3 py-2 text-right">{m.inQty > 0 ? `${m.inQty} ${m.unit}` : "—"}</td>
-                          <td className="px-3 py-2 text-right">{m.outQty > 0 ? `${m.outQty} ${m.unit}` : "—"}</td>
-                          <td className="px-3 py-2 text-right font-medium">{fmtBDT(m.cost)}</td>
+                      <>
+                        {visibleMaterialBreakdown.map((m) => (
+                          <tr key={m.name} className="border-t border-border/40">
+                            <td className="px-3 py-2">{m.name}</td>
+                            <td className="px-3 py-2 text-right">{m.inQty > 0 ? `${m.inQty} ${m.unit}` : "—"}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">
+                              {avgRate(m) != null ? fmtBDT(avgRate(m) as number) : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {m.suppliers.size > 0 ? [...m.suppliers].join(", ") : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">
+                              {m.transportCost > 0 ? fmtBDT(m.transportCost) : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">
+                              {m.carryingCost > 0 ? fmtBDT(m.carryingCost) : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {m.baseCost !== m.cost ? (
+                                <>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    Material: <span className="text-foreground">{fmtBDT(m.baseCost)}</span>
+                                  </div>
+                                  <div className="text-sm font-medium">
+                                    <span className="text-xs font-normal text-muted-foreground">Total: </span>
+                                    <span className="text-gold">{fmtBDT(m.cost)}</span>
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="font-medium">{fmtBDT(m.cost)}</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="border-t border-gold/40 bg-surface-2/60 font-semibold">
+                          <td className="px-3 py-2" colSpan={4}>
+                            Total
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {fmtBDT(visibleMaterialBreakdown.reduce((s, m) => s + m.transportCost, 0))}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {fmtBDT(visibleMaterialBreakdown.reduce((s, m) => s + m.carryingCost, 0))}
+                          </td>
+                          <td className="px-3 py-2 text-right text-gold">
+                            {fmtBDT(visibleMaterialBreakdown.reduce((s, m) => s + m.cost, 0))}
+                          </td>
                         </tr>
-                      ))
+                      </>
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
+            )}
 
+            {view === "labor" && (
             <div>
               <h4 className="mb-2 text-sm font-semibold text-muted-foreground">Labor</h4>
               <div className="overflow-x-auto rounded-lg border border-border/60">
@@ -1764,20 +2127,37 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
                           No labor logged in this period.
                         </td>
                       </tr>
+                    ) : visibleLaborBreakdown.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-3 py-6 text-center text-muted-foreground">
+                          No labor matches "{search}".
+                        </td>
+                      </tr>
                     ) : (
-                      laborBreakdown.map((l) => (
-                        <tr key={l.type} className="border-t border-border/40">
-                          <td className="px-3 py-2">{l.type}</td>
-                          <td className="px-3 py-2 text-right">{l.headcount}</td>
-                          <td className="px-3 py-2 text-right font-medium">{fmtBDT(l.cost)}</td>
+                      <>
+                        {visibleLaborBreakdown.map((l) => (
+                          <tr key={l.type} className="border-t border-border/40">
+                            <td className="px-3 py-2">{l.type}</td>
+                            <td className="px-3 py-2 text-right">{l.headcount}</td>
+                            <td className="px-3 py-2 text-right font-medium">{fmtBDT(l.cost)}</td>
+                          </tr>
+                        ))}
+                        <tr className="border-t border-gold/40 bg-surface-2/60 font-semibold">
+                          <td className="px-3 py-2">Total</td>
+                          <td className="px-3 py-2 text-right">{visibleLaborBreakdown.reduce((s, l) => s + l.headcount, 0)}</td>
+                          <td className="px-3 py-2 text-right text-gold">
+                            {fmtBDT(visibleLaborBreakdown.reduce((s, l) => s + l.cost, 0))}
+                          </td>
                         </tr>
-                      ))
+                      </>
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
+            )}
 
+            {view === "stock" && (
             <div>
               {/* Not period-filtered — a running balance (current stock) has
                   no meaningful "as of last month" reading the way a cost
@@ -1799,8 +2179,14 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
                           No materials found.
                         </td>
                       </tr>
+                    ) : visibleStock.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-3 py-6 text-center text-muted-foreground">
+                          No materials match "{search}".
+                        </td>
+                      </tr>
                     ) : (
-                      (materialsQuery.data ?? []).map((m: any) => (
+                      visibleStock.map((m: any) => (
                         <tr key={m.id} className="border-t border-border/40">
                           <td className="px-3 py-2">{m.name}</td>
                           <td className="px-3 py-2 text-muted-foreground">{m.unit}</td>
@@ -1812,6 +2198,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
                 </table>
               </div>
             </div>
+            )}
           </div>
         )}
     </div>

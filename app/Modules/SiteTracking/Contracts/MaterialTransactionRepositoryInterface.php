@@ -10,8 +10,14 @@ interface MaterialTransactionRepositoryInterface
 {
     public function findOrFail(int $id): MaterialTransaction;
 
-    /** @return Collection<int, MaterialTransaction> */
-    public function listForProject(int $projectId, ?string $date = null): Collection;
+    /**
+     * $date alone = exact-day match (unchanged). $date + $dateTo = an
+     * inclusive range — lets the Daily Log tab switch between its Daily,
+     * Weekly, Monthly and Custom views without a second method.
+     *
+     * @return Collection<int, MaterialTransaction>
+     */
+    public function listForProject(int $projectId, ?string $date = null, ?string $dateTo = null): Collection;
 
     public function create(MaterialTransactionData $data, ?int $createdBy): MaterialTransaction;
 

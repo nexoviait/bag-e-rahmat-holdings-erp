@@ -7,7 +7,7 @@ final readonly class LaborLogData
     public function __construct(
         public int $projectId,
         public string $date,
-        public string $laborType,
+        public ?string $laborType,
         public int $headcount,
         public ?float $wageRate,
         public float $totalCost,
@@ -30,7 +30,7 @@ final readonly class LaborLogData
         return new self(
             projectId: (int) $data['project_id'],
             date: $data['date'],
-            laborType: $data['labor_type'],
+            laborType: $data['labor_type'] ?? null,
             headcount: $headcount,
             wageRate: $wageRate,
             totalCost: $totalCost,

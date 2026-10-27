@@ -13,9 +13,11 @@ use Throwable;
 
 /**
  * The one genuinely new aggregation endpoint this module adds: given a
- * project + a single date, return that day's expense/revenue/materials-cost/
- * labor-cost totals plus a merged timeline of every entry recorded that day —
- * so the Daily Log tab doesn't need 4 separate round trips per date view.
+ * project + a date (or an inclusive date range, via `date_to` — the Daily Log
+ * tab's Weekly/Monthly/Custom views), return that period's expense/revenue/
+ * materials-cost/labor-cost totals plus a merged timeline of every entry
+ * recorded in it — so the Daily Log tab doesn't need 4 separate round trips
+ * per view.
  *
  * Gated on 'reports.view' (an existing, already-broadly-granted permission)
  * rather than a new one — this endpoint only *reads* across modules, it
@@ -32,8 +34,12 @@ class SiteDailySummaryController extends SiteTrackingController
     public function show(Request $request, $id)
     {
         try {
-            $request->validate(['date' => 'required|date']);
+            $request->validate([
+                'date' => 'required|date',
+                'date_to' => 'nullable|date|after_or_equal:date',
+            ]);
             $date = $request->query('date');
+            $dateTo = $request->query('date_to');
             $projectId = (int) $id;
 
             $user = $request->user();
@@ -44,10 +50,19 @@ class SiteDailySummaryController extends SiteTrackingController
 
             Project::findOrFail($projectId);
 
-            $expenseRows = Expense::where('project_id', $projectId)->whereDate('date', $date)->get();
-            $revenueRows = Revenue::where('project_id', $projectId)->whereDate('date', $date)->get();
-            $materialRows = $this->materialTransactions->listForProject($projectId, $date);
-            $laborRows = $this->laborLogs->listForProject($projectId, $date);
+            $expenseQuery = Expense::where('project_id', $projectId);
+            $revenueQuery = Revenue::where('project_id', $projectId);
+            if ($dateTo) {
+                $expenseQuery->whereDate('date', '>=', $date)->whereDate('date', '<=', $dateTo);
+                $revenueQuery->whereDate('date', '>=', $date)->whereDate('date', '<=', $dateTo);
+            } else {
+                $expenseQuery->whereDate('date', $date);
+                $revenueQuery->whereDate('date', $date);
+            }
+            $expenseRows = $expenseQuery->get();
+            $revenueRows = $revenueQuery->get();
+            $materialRows = $this->materialTransactions->listForProject($projectId, $date, $dateTo);
+            $laborRows = $this->laborLogs->listForProject($projectId, $date, $dateTo);
 
             $expenses = (float) $expenseRows->sum('amount');
             $revenue = (float) $revenueRows->sum('amount');
@@ -102,6 +117,7 @@ class SiteDailySummaryController extends SiteTrackingController
 
             return response()->json([
                 'date' => $date,
+                'date_to' => $dateTo,
                 'expenses' => $expenses,
                 'revenue' => $revenue,
                 'materialsCost' => $materialsCost,

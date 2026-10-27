@@ -10,8 +10,14 @@ interface LaborLogRepositoryInterface
 {
     public function findOrFail(int $id): LaborLog;
 
-    /** @return Collection<int, LaborLog> */
-    public function listForProject(int $projectId, ?string $date = null): Collection;
+    /**
+     * $date alone = exact-day match (unchanged). $date + $dateTo = an
+     * inclusive range — see MaterialTransactionRepositoryInterface's same
+     * method for why.
+     *
+     * @return Collection<int, LaborLog>
+     */
+    public function listForProject(int $projectId, ?string $date = null, ?string $dateTo = null): Collection;
 
     public function create(LaborLogData $data, ?int $createdBy): LaborLog;
 

@@ -39,11 +39,12 @@ class MaterialTransactionController extends SiteTrackingController
             $request->validate([
                 'project_id' => 'required|integer|exists:projects,id',
                 'date' => 'nullable|date',
+                'date_to' => 'nullable|date|after_or_equal:date',
             ]);
             $projectId = (int) $request->query('project_id');
             $this->authorize('viewAny', [Material::class, $projectId]);
 
-            $transactions = $this->transactions->listForProject($projectId, $request->query('date'));
+            $transactions = $this->transactions->listForProject($projectId, $request->query('date'), $request->query('date_to'));
 
             return response()->json(MaterialTransactionResource::collection($transactions));
         } catch (AuthorizationException) {

@@ -15,11 +15,13 @@ final class EloquentMaterialTransactionRepository implements MaterialTransaction
         return MaterialTransaction::with('material')->findOrFail($id);
     }
 
-    public function listForProject(int $projectId, ?string $date = null): Collection
+    public function listForProject(int $projectId, ?string $date = null, ?string $dateTo = null): Collection
     {
         $query = MaterialTransaction::with('material')->where('project_id', $projectId);
 
-        if ($date) {
+        if ($date && $dateTo) {
+            $query->whereDate('date', '>=', $date)->whereDate('date', '<=', $dateTo);
+        } elseif ($date) {
             $query->whereDate('date', $date);
         }
 

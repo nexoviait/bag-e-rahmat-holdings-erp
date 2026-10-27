@@ -16,7 +16,7 @@ class StoreLaborLogRequest extends FormRequest
         return [
             'project_id' => ['required', 'integer', 'exists:projects,id'],
             'date' => ['required', 'date'],
-            'labor_type' => ['required', 'string', 'max:60'],
+            'labor_type' => ['nullable', 'string', 'max:60'],
             'headcount' => ['required', 'integer', 'min:1'],
             'wage_rate' => ['nullable', 'numeric', 'min:0'],
             // Optional override — see LaborLogData::fromArray for the

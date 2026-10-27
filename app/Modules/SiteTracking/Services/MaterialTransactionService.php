@@ -15,9 +15,9 @@ final class MaterialTransactionService
         private readonly MaterialTransactionRepositoryInterface $transactions,
     ) {}
 
-    public function listForProject(int $projectId, ?string $date = null): Collection
+    public function listForProject(int $projectId, ?string $date = null, ?string $dateTo = null): Collection
     {
-        return $this->transactions->listForProject($projectId, $date);
+        return $this->transactions->listForProject($projectId, $date, $dateTo);
     }
 
     public function find(int $id): MaterialTransaction

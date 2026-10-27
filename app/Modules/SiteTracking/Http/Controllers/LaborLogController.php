@@ -25,11 +25,12 @@ class LaborLogController extends SiteTrackingController
             $request->validate([
                 'project_id' => 'required|integer|exists:projects,id',
                 'date' => 'nullable|date',
+                'date_to' => 'nullable|date|after_or_equal:date',
             ]);
             $projectId = (int) $request->query('project_id');
             $this->authorize('viewAny', [LaborLog::class, $projectId]);
 
-            $logs = $this->laborLogs->listForProject($projectId, $request->query('date'));
+            $logs = $this->laborLogs->listForProject($projectId, $request->query('date'), $request->query('date_to'));
 
             return response()->json(LaborLogResource::collection($logs));
         } catch (AuthorizationException) {

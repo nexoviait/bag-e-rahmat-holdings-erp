@@ -14,11 +14,13 @@ final class EloquentLaborLogRepository implements LaborLogRepositoryInterface
         return LaborLog::findOrFail($id);
     }
 
-    public function listForProject(int $projectId, ?string $date = null): Collection
+    public function listForProject(int $projectId, ?string $date = null, ?string $dateTo = null): Collection
     {
         $query = LaborLog::where('project_id', $projectId);
 
-        if ($date) {
+        if ($date && $dateTo) {
+            $query->whereDate('date', '>=', $date)->whereDate('date', '<=', $dateTo);
+        } elseif ($date) {
             $query->whereDate('date', $date);
         }
 

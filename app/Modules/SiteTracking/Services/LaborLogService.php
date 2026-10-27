@@ -15,9 +15,9 @@ final class LaborLogService
         private readonly LaborLogRepositoryInterface $laborLogs,
     ) {}
 
-    public function listForProject(int $projectId, ?string $date = null): Collection
+    public function listForProject(int $projectId, ?string $date = null, ?string $dateTo = null): Collection
     {
-        return $this->laborLogs->listForProject($projectId, $date);
+        return $this->laborLogs->listForProject($projectId, $date, $dateTo);
     }
 
     public function find(int $id): LaborLog
@@ -29,10 +29,11 @@ final class LaborLogService
     {
         $log = $this->laborLogs->create($data, $actor->id);
 
+        $laborLabel = $log->labor_type ? "{$log->headcount} {$log->labor_type}" : "{$log->headcount} laborer(s)";
         ActivityLog::create([
             'project_id' => $log->project_id,
             'user_id' => $actor->id,
-            'action' => "Logged {$log->headcount} {$log->labor_type} for " . $log->date->format('Y-m-d'),
+            'action' => "Logged {$laborLabel} for " . $log->date->format('Y-m-d'),
             'entity' => 'LaborLog',
             'entity_id' => (string) $log->id,
         ]);
@@ -47,7 +48,7 @@ final class LaborLogService
         ActivityLog::create([
             'project_id' => $log->project_id,
             'user_id' => $actor->id,
-            'action' => "Updated a labor log entry (\"{$log->labor_type}\")",
+            'action' => 'Updated a labor log entry' . ($log->labor_type ? " (\"{$log->labor_type}\")" : ''),
             'entity' => 'LaborLog',
             'entity_id' => (string) $log->id,
         ]);
@@ -66,7 +67,7 @@ final class LaborLogService
         ActivityLog::create([
             'project_id' => $projectId,
             'user_id' => $actor->id,
-            'action' => "Deleted a labor log entry (\"{$laborType}\")",
+            'action' => 'Deleted a labor log entry' . ($laborType ? " (\"{$laborType}\")" : ''),
             'entity' => 'LaborLog',
             'entity_id' => (string) $id,
         ]);
