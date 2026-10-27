@@ -1491,6 +1491,15 @@ function pdfBDT(amount: number | null | undefined): string {
   return "Tk " + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Summing many transaction quantities (e.g. 0.1 + 0.2 across several
+// purchases) accumulates binary floating-point error — displayed raw this
+// showed as "200.57999999999998". Rounded to 3 decimals (enough for any
+// real unit fraction used here) and printed as a plain number, which drops
+// trailing zeros on its own (200.58, not 200.580).
+function fmtQty(n: number): string {
+  return String(Math.round(n * 1000) / 1000);
+}
+
 // Same-origin logo URL -> data URI, since jsPDF's addImage() needs the raw
 // image bytes up front rather than a URL it can fetch itself.
 async function loadImageAsDataUrl(url: string): Promise<{ dataUrl: string; format: "PNG" | "JPEG" | "WEBP" } | null> {
@@ -1505,6 +1514,38 @@ async function loadImageAsDataUrl(url: string): Promise<{ dataUrl: string; forma
       reader.readAsDataURL(blob);
     });
     return { dataUrl, format };
+  } catch {
+    return null;
+  }
+}
+
+// jsPDF's built-in fonts (helvetica etc.) only cover WinAnsi/Latin-1 — any
+// Bangla text (a supplier name, material name, note...) silently renders as
+// mangled mojibake instead of failing loudly, since each UTF-8 byte gets
+// drawn as its own Latin-1 glyph. Noto Sans Bengali (SIL Open Font License,
+// public/fonts/NotoSansBengali.ttf) covers Bengali script and, usefully,
+// renders Latin text cleanly too — so once embedded it replaces helvetica
+// everywhere in this PDF rather than needing per-cell script detection.
+// It's a variable font (wdth,wght axes); jsPDF only resolves its default
+// (Regular) instance, so this is registered as both "normal" and "bold" to
+// keep autoTable's bold header/footer styling from erroring on a missing
+// font variant — bold text renders at regular weight, which is a fine
+// trade-off next to the alternative of garbled Bangla.
+let cachedBengaliFontBase64: string | null = null;
+async function loadBengaliFontBase64(): Promise<string | null> {
+  if (cachedBengaliFontBase64) return cachedBengaliFontBase64;
+  try {
+    const res = await fetch("/fonts/NotoSansBengali.ttf");
+    const blob = await res.blob();
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    // addFileToVFS wants the raw base64 payload, not the data: URL prefix.
+    cachedBengaliFontBase64 = dataUrl.split(",")[1] ?? null;
+    return cachedBengaliFontBase64;
   } catch {
     return null;
   }
@@ -1704,7 +1745,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
           ? [
               ...materialBreakdown.map((m) => [
                 `${m.name} (${m.unit})`,
-                m.inQty,
+                Number(fmtQty(m.inQty)),
                 avgRate(m) ?? "",
                 [...m.suppliers].join("; ") || "",
                 m.transportCost,
@@ -1766,6 +1807,14 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
     const pageWidth = doc.internal.pageSize.getWidth();
     let y = 16;
 
+    const bengaliFontB64 = await loadBengaliFontBase64();
+    const bodyFont = bengaliFontB64 ? "NotoSansBengali" : "helvetica";
+    if (bengaliFontB64) {
+      doc.addFileToVFS("NotoSansBengali.ttf", bengaliFontB64);
+      doc.addFont("NotoSansBengali.ttf", "NotoSansBengali", "normal");
+      doc.addFont("NotoSansBengali.ttf", "NotoSansBengali", "bold");
+    }
+
     const logo = reportAppLogo ? await loadImageAsDataUrl(reportAppLogo) : null;
     let logoDrawn = false;
     if (logo) {
@@ -1785,9 +1834,9 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
     // is configured (Admin > Settings) or it failed to load.
     if (!logoDrawn) {
       doc.setFontSize(15);
-      doc.setFont("helvetica", "bold");
+      doc.setFont(bodyFont, "bold");
       doc.text(reportAppName, marginX, y + 4);
-      doc.setFont("helvetica", "normal");
+      doc.setFont(bodyFont, "normal");
       doc.setFontSize(9);
       doc.setTextColor(110);
       doc.text(reportAppSubtitle, marginX, y + 9.5);
@@ -1801,9 +1850,9 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
     y += 8;
 
     doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
+    doc.setFont(bodyFont, "bold");
     doc.text(`Daily Log Report — ${VIEW_LABELS[view]}`, marginX, y);
-    doc.setFont("helvetica", "normal");
+    doc.setFont(bodyFont, "normal");
     y += 6;
     doc.setFontSize(11);
     doc.text(projectQuery.data?.name || "", marginX, y);
@@ -1816,9 +1865,14 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
 
     const tableDefaults = {
       theme: "grid" as const,
-      headStyles: { fillColor: [180, 140, 40] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontStyle: "bold" as const },
+      headStyles: {
+        fillColor: [180, 140, 40] as [number, number, number],
+        textColor: [255, 255, 255] as [number, number, number],
+        fontStyle: "bold" as const,
+        font: bodyFont,
+      },
       margin: { left: marginX, right: marginX },
-      styles: { fontSize: 9, cellPadding: 2.5 },
+      styles: { fontSize: 9, cellPadding: 2.5, font: bodyFont },
     };
 
     // Filter-wise — only the section currently selected in the view dropdown
@@ -1849,7 +1903,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
           materialBreakdown.length > 0
             ? materialBreakdown.map((m) => [
                 `${m.name} (${m.unit})`,
-                m.inQty > 0 ? m.inQty : "—",
+                m.inQty > 0 ? fmtQty(m.inQty) : "—",
                 avgRate(m) != null ? pdfBDT(avgRate(m) as number) : "—",
                 [...m.suppliers].join("; ") || "—",
                 m.transportCost > 0 ? pdfBDT(m.transportCost) : "—",
@@ -1873,7 +1927,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
                 ],
               ]
             : undefined,
-        footStyles: { fillColor: [245, 240, 225], textColor: [20, 20, 20], fontStyle: "bold" as const },
+        footStyles: { fillColor: [245, 240, 225], textColor: [20, 20, 20], fontStyle: "bold" as const, font: bodyFont },
         columnStyles: {
           1: { halign: "right" },
           2: { halign: "right" },
@@ -1904,7 +1958,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
           laborBreakdown.length > 0
             ? [["Total", laborBreakdown.reduce((s, l) => s + l.headcount, 0), pdfBDT(laborCost)]]
             : undefined,
-        footStyles: { fillColor: [245, 240, 225], textColor: [20, 20, 20], fontStyle: "bold" as const },
+        footStyles: { fillColor: [245, 240, 225], textColor: [20, 20, 20], fontStyle: "bold" as const, font: bodyFont },
         columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
       });
     } else {
@@ -2056,7 +2110,7 @@ function DailyLogReportView({ projectId, onBack }: { projectId: string; onBack: 
                         {visibleMaterialBreakdown.map((m) => (
                           <tr key={m.name} className="border-t border-border/40">
                             <td className="px-3 py-2">{m.name}</td>
-                            <td className="px-3 py-2 text-right">{m.inQty > 0 ? `${m.inQty} ${m.unit}` : "—"}</td>
+                            <td className="px-3 py-2 text-right">{m.inQty > 0 ? `${fmtQty(m.inQty)} ${m.unit}` : "—"}</td>
                             <td className="px-3 py-2 text-right text-muted-foreground">
                               {avgRate(m) != null ? fmtBDT(avgRate(m) as number) : "—"}
                             </td>
